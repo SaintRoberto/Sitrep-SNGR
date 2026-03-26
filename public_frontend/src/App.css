@@ -44,6 +44,16 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 
 .summary-grid strong { color: #0a2a6e; font-size: 18px; }
 
+.important-list {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  color: #334155;
+}
+
+.important-list li {
+  margin-bottom: 8px;
+}
+
 .table-wrap { overflow: auto; border: 1px solid #d6dbe8; }
 table { width: 100%; border-collapse: collapse; min-width: 1100px; }
 thead th { background: #0a2a6e; color: #fff; font-weight: 600; font-size: 12px; padding: 6px; border: 1px solid #3b4e77; }

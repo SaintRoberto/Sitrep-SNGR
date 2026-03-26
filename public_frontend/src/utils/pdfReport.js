@@ -47,6 +47,47 @@ const DETAIL_COLUMNS = [
   { key: 'MuertosAnimales', label: 'Animales Muertos', aliases: ['MuertosAnimales'], type: 'number', vertical: true },
 ]
 
+const EVENT_TYPE_COLUMNS = [
+  { key: 'Inundacion', label: 'inundaciones' },
+  { key: 'Deslizamiento', label: 'deslizamientos' },
+  { key: 'Lluvias_Intensas', label: 'lluvias intensas' },
+  { key: 'Erosion_Hidrica', label: 'erosion hidrica' },
+  { key: 'Hundimiento', label: 'hundimientos' },
+  { key: 'Aluvion', label: 'aluviones' },
+  { key: 'Vendaval', label: 'vendavales' },
+  { key: 'Caidas_Colapso', label: 'caidas (colapsos)' },
+  { key: 'Tormenta_Electrica', label: 'tormentas electricas' },
+  { key: 'Granizada', label: 'granizadas' },
+  { key: 'Reptacion', label: 'reptacion' },
+  { key: 'Avalancha', label: 'avalanchas' },
+  { key: 'Nevada', label: 'nevadas' },
+  { key: 'Exceso_Humedad', label: 'exceso de humedad' },
+  { key: 'Torbellino', label: 'torbellinos' },
+  { key: 'Colapso_Infraestructura', label: 'colapso de infraestructura' },
+]
+
+const TIPO_LLUVIAS_TABLE_COLUMNS = [
+  { key: '__no__', label: 'No.', type: 'index', vertical: false },
+  { key: 'Provincia', label: 'Provincia', type: 'text', vertical: false },
+  { key: 'NumeroEventos', label: 'No. de\nEvento', type: 'number', vertical: false },
+  { key: 'Inundacion', label: 'Inundacion', type: 'number', vertical: true },
+  { key: 'Deslizamiento', label: 'Deslizamiento', type: 'number', vertical: true },
+  { key: 'Lluvias_Intensas', label: 'Lluvias Intensas', type: 'number', vertical: true },
+  { key: 'Erosion_Hidrica', label: 'Erosion Hidrica', type: 'number', vertical: true },
+  { key: 'Hundimiento', label: 'Hundimiento', type: 'number', vertical: true },
+  { key: 'Aluvion', label: 'Aluvion', type: 'number', vertical: true },
+  { key: 'Vendaval', label: 'Vendaval', type: 'number', vertical: true },
+  { key: 'Caidas_Colapso', label: 'Caidas Colapso', type: 'number', vertical: true },
+  { key: 'Tormenta_Electrica', label: 'Tormenta Electrica', type: 'number', vertical: true },
+  { key: 'Granizada', label: 'Granizada', type: 'number', vertical: true },
+  { key: 'Reptacion', label: 'Reptacion', type: 'number', vertical: true },
+  { key: 'Avalancha', label: 'Avalancha', type: 'number', vertical: true },
+  { key: 'Nevada', label: 'Nevada', type: 'number', vertical: true },
+  { key: 'Exceso_Humedad', label: 'Exceso Humedad', type: 'number', vertical: true },
+  { key: 'Torbellino', label: 'Torbellino', type: 'number', vertical: true },
+  { key: 'Colapso_Infraestructura', label: 'Colapso Infraestructura', type: 'number', vertical: true },
+]
+
 function toNumber(value) {
   const normalized = String(value ?? '').replace(',', '.')
   const num = Number(normalized)
@@ -55,6 +96,10 @@ function toNumber(value) {
 
 function formatInt(value) {
   return Math.round(value).toLocaleString('es-EC')
+}
+
+function formatPct(value) {
+  return Number(value).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function getFieldByAliases(row, aliases, fallback = 'N/D') {
@@ -131,6 +176,96 @@ function buildImpactTokens(items, maxProvincias = 8) {
   return tokens
 }
 
+function countUniqueByAliases(items, aliases) {
+  const set = new Set()
+  for (const row of items) {
+    const value = String(getFieldByAliases(row, aliases, '')).trim()
+    if (value) set.add(value)
+  }
+  return set.size
+}
+
+function summarizeEventosAdversos(tipoLluviasItems) {
+  const totalsByType = {}
+  EVENT_TYPE_COLUMNS.forEach((eventType) => {
+    totalsByType[eventType.key] = tipoLluviasItems.reduce((acc, row) => acc + toNumber(row[eventType.key]), 0)
+  })
+
+  const totalEventos = tipoLluviasItems.reduce((acc, row) => acc + toNumber(row.NumeroEventos), 0)
+  const ordered = EVENT_TYPE_COLUMNS
+    .map((eventType) => ({
+      key: eventType.key,
+      label: eventType.label,
+      total: totalsByType[eventType.key],
+      pct: totalEventos > 0 ? (totalsByType[eventType.key] / totalEventos) * 100 : 0,
+    }))
+    .filter((eventType) => eventType.total > 0)
+    .sort((a, b) => b.total - a.total)
+
+  return { totalEventos, ordered }
+}
+
+function buildPuntosImportantesLines(items, tipoLluviasItems) {
+  const adverse = summarizeEventosAdversos(tipoLluviasItems)
+  const provinciasCount = countUniqueByAliases(items, ['Provincia'])
+  const cantonesCount = countUniqueByAliases(items, ['Canton', 'CantonNombre'])
+  const parroquiasCount = countUniqueByAliases(items, ['Parroquia', 'ParroquiaNombre'])
+  const principales = adverse.ordered.slice(0, 8)
+
+  const principalesText = principales.length
+    ? `${principales.map((x) => `${x.label} (${formatPct(x.pct)}%)`).join(', ')} entre los principales.`
+    : 'sin eventos recurrentes identificables.'
+
+  const line1 = `Desde el 1 de enero de 2026 hasta la presente fecha se han registrado ${formatInt(adverse.totalEventos)} eventos adversos por lluvias afectando a ${formatInt(provinciasCount)} provincias, ${formatInt(cantonesCount)} cantones y ${formatInt(parroquiasCount)} parroquias. Los eventos mas recurrentes corresponden a: ${principalesText}`
+
+  const topImpactProvincias = buildImpactRanking(items, 8).map((x) => x.provincia)
+  const line2 = topImpactProvincias.length
+    ? `En lo que va del anio 2026, las provincias con mayor impacto a la poblacion son: ${topImpactProvincias.join(', ')}.`
+    : 'En lo que va del anio 2026, no hay datos suficientes para identificar provincias con mayor impacto a la poblacion.'
+
+  return { line1, line2, adverse }
+}
+
+function drawBulletText(doc, text, x, y, maxWidth, lineHeight = 4.1) {
+  const bulletX = x
+  const textX = x + 4
+  const lines = doc.splitTextToSize(text, maxWidth - 4)
+  doc.text('-', bulletX, y)
+  doc.text(lines, textX, y)
+  return y + lines.length * lineHeight + 1
+}
+
+function buildTipoLluviasTableData(items) {
+  const dataRows = items.map((row, index) => {
+    const out = { __isTotal__: false }
+    TIPO_LLUVIAS_TABLE_COLUMNS.forEach((col) => {
+      if (col.type === 'index') out[col.key] = index + 1
+      else if (col.type === 'text') out[col.key] = String(row[col.key] ?? 'N/D')
+      else out[col.key] = toNumber(row[col.key])
+    })
+    return out
+  })
+
+  const totals = { __isTotal__: true }
+  TIPO_LLUVIAS_TABLE_COLUMNS.forEach((col) => {
+    if (col.type === 'index') totals[col.key] = ''
+    else if (col.type === 'text') totals[col.key] = 'Total General'
+    else totals[col.key] = dataRows.reduce((acc, r) => acc + toNumber(r[col.key]), 0)
+  })
+
+  return [...dataRows, totals]
+}
+
+function drawVerticalHeaderLabel(doc, col, cell) {
+  const label = String(col.label || '').replace(/\\s+/g, ' ').trim()
+  const centerX = cell.x + cell.width / 2
+  const startY = cell.y + cell.height - 2
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(255, 255, 255)
+  doc.text(label, centerX, startY, { angle: 90, align: 'left' })
+}
 function buildTableData(items) {
   const dataRows = items.map((row, index) => {
     const out = { __isTotal__: false }
@@ -245,15 +380,18 @@ function drawSummaryGrid(doc, resumen, startY) {
   return startY + rows * cardH + (rows - 1) * 4 + 3
 }
 
-export function exportEventosLluviasPdf({ items = [], provinciaId }) {
+export function exportEventosLluviasPdf({ items = [], tipoLluviasItems = [], provinciaId }) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
   const now = new Date()
   const dateLabel = now.toLocaleDateString('es-EC')
   const timeLabel = now.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })
 
   const resumen = summarize(items)
+  const puntosImportantes = buildPuntosImportantesLines(items, tipoLluviasItems)
   const introTokens = buildImpactTokens(items, 8)
+  const tipoLluviasTableData = buildTipoLluviasTableData(tipoLluviasItems)
   const tableData = buildTableData(items)
+  const tipoLluviasBodyRows = tipoLluviasTableData.map((r) => TIPO_LLUVIAS_TABLE_COLUMNS.map((c) => r[c.key]))
   const bodyRows = tableData.map((r) => DETAIL_COLUMNS.map((c) => r[c.key]))
   const filtroText = provinciaId ? `ProvinciaID: ${provinciaId}` : 'ProvinciaID: Todos'
 
@@ -273,12 +411,62 @@ export function exportEventosLluviasPdf({ items = [], provinciaId }) {
   y = drawWrappedText(doc, filtroText, PAGE.left, y, PAGE.width)
   y += 2
 
+  y = drawSectionTitle(doc, '1. Puntos importantes', y)
+  doc.setTextColor(30, 41, 59)
+  doc.setFontSize(9)
+  y = drawBulletText(doc, puntosImportantes.line1, PAGE.left, y, PAGE.width)
+  y = drawBulletText(doc, puntosImportantes.line2, PAGE.left, y, PAGE.width)
+  y += 2
+
+  y = drawSectionTitle(doc, '3. Eventos Adversos y Afectaciones - Resumen', y)
+  autoTable(doc, {
+    startY: y,
+    head: [TIPO_LLUVIAS_TABLE_COLUMNS.map((c) => c.label)],
+    body: tipoLluviasBodyRows,
+    theme: 'grid',
+    margin: { left: PAGE.left, right: PAGE.right },
+    styles: { fontSize: 7, cellPadding: 0.8, halign: 'center', valign: 'middle', lineWidth: 0.15 },
+    headStyles: {
+      fillColor: BLUE,
+      textColor: [255, 255, 255],
+      lineColor: [200, 210, 230],
+      minCellHeight: 40,
+    },
+    alternateRowStyles: { fillColor: [245, 248, 255] },
+    didParseCell: (hookData) => {
+      const { cell, column, row, section } = hookData
+      if (section === 'head') {
+        const col = TIPO_LLUVIAS_TABLE_COLUMNS[column.index]
+        if (col?.vertical) {
+          cell.text = ['']
+          cell.styles.minCellHeight = 40
+        }
+      }
+      if (section === 'body') {
+        const isTotalRow = row.index === tipoLluviasBodyRows.length - 1
+        if (isTotalRow) {
+          cell.styles.fillColor = BLUE
+          cell.styles.textColor = [255, 255, 255]
+          cell.styles.fontStyle = 'bold'
+        }
+      }
+    },
+    didDrawCell: (hookData) => {
+      const { cell, column, section } = hookData
+      if (section !== 'head') return
+      const col = TIPO_LLUVIAS_TABLE_COLUMNS[column.index]
+      if (!col?.vertical) return
+      drawVerticalHeaderLabel(doc, col, cell)
+    },
+  })
+  y = doc.lastAutoTable.finalY + 3
+
+  y += 3
   y = drawSectionTitle(doc, '4. Eventos Peligrosos y Afectaciones - Resumen', y)
   y = drawSummaryGrid(doc, resumen, y)
 
   y += 3
   y = drawSectionTitle(doc, '5. Detalle de afectaciones por provincia (de 1 de enero del anio 2026 a la fecha)', y)
-
   doc.setTextColor(30, 41, 59)
   doc.setFontSize(9)
   y = drawRichTextTokens(doc, introTokens, PAGE.left, y, PAGE.width)
@@ -335,18 +523,11 @@ export function exportEventosLluviasPdf({ items = [], provinciaId }) {
 
       const col = DETAIL_COLUMNS[column.index]
       if (!col?.vertical) return
-
-      const label = String(col.label || '').replace(/\s+/g, ' ').trim()
-      const centerX = cell.x + cell.width / 2
-      const startY = cell.y + cell.height - 2
-
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(6.5)
-      doc.setTextColor(255, 255, 255)
-      doc.text(label, centerX, startY, { angle: 90, align: 'left' })
+      drawVerticalHeaderLabel(doc, col, cell)
     },
   })
 
   const fileSuffix = provinciaId ? `provincia_${provinciaId}` : 'todas'
   doc.save(`sitrep_lluvias_preview_style_${fileSuffix}.pdf`)
 }
+
