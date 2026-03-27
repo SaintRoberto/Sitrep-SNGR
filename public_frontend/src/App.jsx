@@ -234,6 +234,32 @@ function buildSection4(items) {
   return { cards: normalizedCards.slice(0, 6), paragraph }
 }
 
+function buildDetalleAnalisis(rows) {
+  const byProvincia = new Map()
+  rows.forEach((row) => {
+    const provincia = String(row.Provincia || '').trim()
+    if (!provincia) return
+    const current = byProvincia.get(provincia) || { eventos: 0, impactadas: 0 }
+    current.eventos += n(row.NumeroEventos)
+    current.impactadas += n(row.ImpactadasPersonas)
+    byProvincia.set(provincia, current)
+  })
+
+  const ranking = [...byProvincia.entries()]
+    .map(([provincia, agg]) => ({ provincia, ...agg }))
+    .sort((a, b) => b.impactadas - a.impactadas || b.eventos - a.eventos)
+    .slice(0, 8)
+
+  if (!ranking.length) {
+    return 'No hay datos suficientes para generar el analisis del detalle de afectaciones por provincia.'
+  }
+
+  const first = ranking[0]
+  const rest = ranking.slice(1)
+  const restText = rest.length ? `; seguido de ${rest.map((x) => `${x.provincia} (${formatInt(x.impactadas)} impactadas en ${formatInt(x.eventos)} eventos)`).join('; ')}.` : '.'
+  return `La provincia con mayor impacto es ${first.provincia} (${formatInt(first.impactadas)} personas impactadas en ${formatInt(first.eventos)} eventos)${restText}`
+}
+
 function escapeXml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -360,6 +386,7 @@ function App() {
   const tipoLluviasRowsOrdered = useMemo(() => sortByNumeroEventosDesc(tipoLluviasItems), [tipoLluviasItems])
   const puntosImportantes = useMemo(() => buildPuntosImportantes(items, analysisRows, tipo), [items, analysisRows, tipo])
   const section4 = useMemo(() => buildSection4(items), [items])
+  const detalleAnalisis = useMemo(() => buildDetalleAnalisis(detailRows), [detailRows])
 
   useEffect(() => {
     setResponseData(null)
@@ -540,6 +567,7 @@ function App() {
             </div>
 
             <div className="block-title">5. Detalle de afectaciones por Provincia (de 1 de enero del anio 2026 a la fecha)</div>
+            <p className="muted">{detalleAnalisis}</p>
             <button
               type="button"
               onClick={() => downloadExcelXml(`detalle_${tipo}.xml`, 'DetalleAfectaciones', currentDetailCols, detailRows)}
