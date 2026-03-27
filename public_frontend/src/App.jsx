@@ -5,6 +5,8 @@ import { exportEventosLluviasPdf } from './utils/pdfReport'
 const API_ENV = import.meta.env.VITE_API_ENV || 'local'
 const API_LOCAL_URL = import.meta.env.VITE_API_LOCAL_URL || 'http://localhost:5000'
 const API_PROD_URL = import.meta.env.VITE_API_PROD_URL || ''
+const PUBLIC_API_KEY = import.meta.env.VITE_PUBLIC_API_KEY || ''
+const DEBUG = import.meta.env.DEBUG === 'true' || false
 
 const API_BASE_URL = API_ENV === 'prod' ? API_PROD_URL : API_LOCAL_URL
 
@@ -16,18 +18,38 @@ const ENDPOINTS = {
 }
 
 const DETAIL_COLS = [
+  ['__no__', 'No.'],
   ['Provincia', 'Provincia'],
   ['NumeroEventos', 'Nro. Eventos'],
   ['ImpactadasPersonas', 'Personas Impactadas'],
-  ['AfectadosFamilias', 'Familias Afectadas'],
+  ['Extraviados', 'Personas Extraviadas'],
+  ['Fallecidos', 'Personas Fallecidas'],
+  ['Heridos', 'Personas Heridas'],
   ['AfectadosPersonas', 'Personas Afectadas'],
-  ['DamnificadosFamilias', 'Familias Damnificadas'],
   ['DamnificadosPersonas', 'Personas Damnificadas'],
+  ['AfectadosFamilias', 'Familias Afectadas'],
+  ['DamnificadosFamilias', 'Familias Damnificadas'],
   ['AfectadosViviendas', 'Viviendas Afectadas'],
+  ['DestruidosViviendas', 'Viviendas Destruidas'],
   ['AfectadosPuentes', 'Puentes Afectados'],
   ['DestruidosPuentes', 'Puentes Destruidos'],
-  ['AfectadosPrivados', 'Bienes Privados'],
+  ['AfectadosPrivados', 'Bienes Privados Afectados'],
+  ['DestruidosPrivados', 'Bienes Privados Destruidos'],
+  ['AfectadosPublicos', 'Bienes Publicos Afectados'],
+  ['DestruidosPublicos', 'Bienes Publicos Destruidos'],
+  ['AfectadosEducativos', 'Centros Educativos Afectados'],
+  ['DestruidosEducativos', 'Centros Educativos Destruidos'],
+  ['FuncionalEducativos', 'Centros Educativos Funcionales'],
+  ['AfectadosSalud', 'Centros Salud Afectados'],
+  ['DestruidosSalud', 'Centros Salud Destruidos'],
+  ['Evacuados', 'Evacuados'],
   ['AfectadosKilometros', 'Km Vias Afectadas'],
+  ['AfectadosMetros', 'Metros Vias Afectadas'],
+  ['AfectadosHectareas', 'Hectareas Afectadas'],
+  ['PerdidosHectareas', 'Hectareas Perdidas'],
+  ['QuemadasHectareas', 'Hectareas Quemadas'],
+  ['AfectadosAnimales', 'Animales Afectados'],
+  ['MuertosAnimales', 'Animales Muertos'],
 ]
 
 const TIPO_LLUVIAS_COLS = [
@@ -232,17 +254,32 @@ function App() {
   const [tipoLluviasItems, setTipoLluviasItems] = useState([])
   const [showRawJson, setShowRawJson] = useState(false)
 
+  const buildApiUrl = (endpointPath, provinciaValue = '') => {
+    const base = `${API_BASE_URL}${endpointPath}`
+    const params = new URLSearchParams()
+    if (PUBLIC_API_KEY) params.set('api_key', PUBLIC_API_KEY)
+    const trimmedProvincia = provinciaValue.trim()
+    if (trimmedProvincia) params.set('ProvinciaID', trimmedProvincia)
+    const query = params.toString()
+    return query ? `${base}?${query}` : base
+  }
+
   const requestUrl = useMemo(() => {
     const base = `${API_BASE_URL}${ENDPOINTS[tipo]}`
     const trimmedProvincia = provinciaId.trim()
 
-    if (!trimmedProvincia) return base
-
-    const params = new URLSearchParams({ ProvinciaID: trimmedProvincia })
-    return `${base}?${params.toString()}`
+    const params = new URLSearchParams()
+    if (PUBLIC_API_KEY) params.set('api_key', PUBLIC_API_KEY)
+    if (trimmedProvincia) params.set('ProvinciaID', trimmedProvincia)
+    const query = params.toString()
+    return query ? `${base}?${query}` : base
   }, [tipo, provinciaId])
 
   const items = responseData?.items ?? []
+  const detailRows = useMemo(
+    () => items.map((row, idx) => ({ __no__: idx + 1, ...row })),
+    [items]
+  )
   const resumen = useMemo(() => buildResumen(items), [items])
   const puntosImportantes = useMemo(() => buildPuntosImportantes(items, tipoLluviasItems), [items, tipoLluviasItems])
 
@@ -252,12 +289,11 @@ function App() {
     setError('')
 
     try {
+      if (!PUBLIC_API_KEY) throw new Error('Falta VITE_PUBLIC_API_KEY en el frontend.')
+
       if (tipo === 'lluvias') {
         const trimmedProvincia = provinciaId.trim()
-        const tipoLluviasBase = `${API_BASE_URL}${ENDPOINTS.tipoLluvias}`
-        const tipoLluviasUrl = trimmedProvincia
-          ? `${tipoLluviasBase}?${new URLSearchParams({ ProvinciaID: trimmedProvincia }).toString()}`
-          : tipoLluviasBase
+        const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias, trimmedProvincia)
 
         const [responseMain, responseTipos] = await Promise.all([fetch(requestUrl), fetch(tipoLluviasUrl)])
         const [dataMain, dataTipos] = await Promise.all([responseMain.json(), responseTipos.json()])
@@ -296,11 +332,9 @@ function App() {
     setLoading(true)
     setError('')
     try {
-      const tipoLluviasBase = `${API_BASE_URL}${ENDPOINTS.tipoLluvias}`
+      if (!PUBLIC_API_KEY) throw new Error('Falta VITE_PUBLIC_API_KEY en el frontend.')
       const trimmedProvincia = provinciaId.trim()
-      const tipoLluviasUrl = trimmedProvincia
-        ? `${tipoLluviasBase}?${new URLSearchParams({ ProvinciaID: trimmedProvincia }).toString()}`
-        : tipoLluviasBase
+      const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias, trimmedProvincia)
 
       const response = await fetch(tipoLluviasUrl)
       const data = await response.json()
@@ -345,12 +379,14 @@ function App() {
           <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled={!responseData}>{showRawJson ? 'Ocultar JSON' : 'Ver JSON'}</button>
         </form>
 
-        <p className="request-url">GET {requestUrl}</p>
-        {error && <p className="error">{error}</p>}
+        {(DEBUG === true) && (
+          <p className="request-url">GET {requestUrl}</p>
+        )}
+        {error && DEBUG && <p className="error">{error}</p>}
 
         {tipo === 'lluvias' && items.length > 0 && (
           <section className="preview">
-            <h2>Vista Previa SITREP</h2>            
+            <h2>Vista Previa SITREP</h2>
 
             <div className="block-title">1. Puntos importantes</div>
             <ul className="important-list">
@@ -394,7 +430,7 @@ function App() {
             <div className="block-title">5. Detalle de afectaciones por Provincia (de 1 de enero del anio 2026 a la fecha)</div>
             <button
               type="button"
-              onClick={() => downloadExcelXml('detalle_afectaciones.xml', 'DetalleAfectaciones', DETAIL_COLS, items)}
+              onClick={() => downloadExcelXml('detalle_afectaciones.xml', 'DetalleAfectaciones', DETAIL_COLS, detailRows)}
               disabled={!items.length}
             >
               Descargar Excel - Seccion 5
@@ -405,7 +441,7 @@ function App() {
                   <tr>{DETAIL_COLS.map(([, label]) => <th key={label}>{label}</th>)}</tr>
                 </thead>
                 <tbody>
-                  {items.map((row, idx) => (
+                  {detailRows.map((row, idx) => (
                     <tr key={idx}>
                       {DETAIL_COLS.map(([key]) => <td key={`${idx}-${key}`}>{row[key] ?? '0'}</td>)}
                     </tr>

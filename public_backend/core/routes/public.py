@@ -38,6 +38,7 @@ def health():
 
 
 @public_bp.get("/test-conexion")
+@require_api_key
 def test_conexion():
     """Verifica conexion MySQL
     ---
@@ -80,6 +81,7 @@ def _parse_provincia_id_optional():
 
 
 @public_bp.get("/eventos-por-lluvias")
+@require_api_key
 def eventos_por_lluvias():
     """Lista eventos por lluvias, opcionalmente filtrados por ProvinciaID
     ---
@@ -111,6 +113,7 @@ def eventos_por_lluvias():
 
 
 @public_bp.get("/eventos-no-por-lluvias")
+@require_api_key
 def eventos_no_por_lluvias():
     """Lista eventos no por lluvias, opcionalmente filtrados por ProvinciaID
     ---
@@ -142,6 +145,7 @@ def eventos_no_por_lluvias():
 
 
 @public_bp.get("/eventos-por-incendios-forestales")
+@require_api_key
 def eventos_por_incendios_forestales():
     """Lista eventos por incendios forestales, opcionalmente filtrados por ProvinciaID
     ---
@@ -173,6 +177,7 @@ def eventos_por_incendios_forestales():
 
 
 @public_bp.get("/eventos-por-tipo-lluvias")
+@require_api_key
 def eventos_por_tipo_lluvias():
     """Lista eventos por tipo lluvias, opcionalmente filtrados por ProvinciaID
     ---
