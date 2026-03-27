@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { exportEventosLluviasPdf } from './utils/pdfReport'
 
@@ -15,6 +15,12 @@ const ENDPOINTS = {
   noLluvias: '/api/public/eventos-no-por-lluvias',
   incendios: '/api/public/eventos-por-incendios-forestales',
   tipoLluvias: '/api/public/eventos-por-tipo-lluvias',
+}
+
+const TIPO_LABELS = {
+  lluvias: 'lluvias',
+  noLluvias: 'eventos no por lluvias',
+  incendios: 'incendios forestales',
 }
 
 const DETAIL_COLS = [
@@ -86,20 +92,22 @@ const EVENT_TYPES = [
   ['Granizada', 'granizadas'],
 ]
 
+const SUMMARY_FIELDS = [
+  ['AfectadosPersonas', 'Personas afectadas'],
+  ['AfectadosFamilias', 'Familias afectadas'],
+  ['AfectadosViviendas', 'Viviendas afectadas'],
+  ['AfectadosPuentes', 'Puentes afectados'],
+  ['DestruidosPuentes', 'Puentes destruidos'],
+  ['AfectadosKilometros', 'Km vias afectadas'],
+]
+
 function n(v) {
   const x = Number(String(v ?? '').replace(',', '.'))
   return Number.isFinite(x) ? x : 0
 }
 
-function buildResumen(items) {
-  return {
-    personasAfectadas: items.reduce((a, r) => a + n(r.AfectadosPersonas), 0),
-    familiasAfectadas: items.reduce((a, r) => a + n(r.AfectadosFamilias), 0),
-    viviendasAfectadas: items.reduce((a, r) => a + n(r.AfectadosViviendas), 0),
-    puentesAfectados: items.reduce((a, r) => a + n(r.AfectadosPuentes), 0),
-    puentesDestruidos: items.reduce((a, r) => a + n(r.DestruidosPuentes), 0),
-    kmViasAfectadas: items.reduce((a, r) => a + n(r.AfectadosKilometros), 0),
-  }
+function sortByNumeroEventosDesc(rows) {
+  return [...rows].sort((a, b) => n(b?.NumeroEventos) - n(a?.NumeroEventos))
 }
 
 function formatInt(v) {
@@ -110,31 +118,88 @@ function formatPct(v) {
   return Number(v).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function buildPuntosImportantes(items, tipoLluviasItems) {
-  const totalEventos = tipoLluviasItems.reduce((acc, row) => acc + n(row.NumeroEventos), 0)
+function prettifyLabel(key) {
+  return String(key || '')
+    .replaceAll('_', ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .trim()
+}
+
+function getTopNumericColumns(items, limit = 8, excludeKeys = []) {
+  if (!items.length) return []
+
+  const excluded = new Set(excludeKeys)
+  const sums = new Map()
+
+  items.forEach((row) => {
+    Object.entries(row || {}).forEach(([key, value]) => {
+      if (excluded.has(key)) return
+      const valueNum = n(value)
+      if (!Number.isFinite(valueNum)) return
+      sums.set(key, (sums.get(key) || 0) + valueNum)
+    })
+  })
+
+  return [...sums.entries()]
+    .filter(([, total]) => total > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([key, total]) => ({ key, label: prettifyLabel(key), total }))
+}
+
+function buildDynamicCols(items) {
+  const first = items[0] || {}
+  const keys = Object.keys(first)
+
+  const priority = ['Provincia', 'NumeroEventos', 'ProvinciaID']
+  const ordered = [
+    ...priority.filter((key) => keys.includes(key)),
+    ...keys.filter((key) => !priority.includes(key)),
+  ]
+
+  return [
+    ['__no__', 'No.'],
+    ...ordered.map((key) => [key, prettifyLabel(key)]),
+  ]
+}
+
+function buildPuntosImportantes(items, analysisRows, tipo) {
+  const totalEventos = analysisRows.reduce((acc, row) => acc + n(row.NumeroEventos), 0)
   const provincias = new Set(items.map((row) => String(row.Provincia || '').trim()).filter(Boolean)).size
   const cantones = new Set(items.map((row) => String(row.Canton || row.CantonNombre || '').trim()).filter(Boolean)).size
   const parroquias = new Set(items.map((row) => String(row.Parroquia || row.ParroquiaNombre || '').trim()).filter(Boolean)).size
 
-  const rankedTypes = EVENT_TYPES
-    .map(([key, label]) => {
-      const total = tipoLluviasItems.reduce((acc, row) => acc + n(row[key]), 0)
-      const pct = totalEventos > 0 ? (total / totalEventos) * 100 : 0
-      return { label, total, pct }
-    })
-    .filter((x) => x.total > 0)
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 8)
+  let rankedTypes = []
+
+  if (tipo === 'lluvias') {
+    rankedTypes = EVENT_TYPES
+      .map(([key, label]) => {
+        const total = analysisRows.reduce((acc, row) => acc + n(row[key]), 0)
+        const pct = totalEventos > 0 ? (total / totalEventos) * 100 : 0
+        return { label, total, pct }
+      })
+      .filter((x) => x.total > 0)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8)
+  } else {
+    rankedTypes = getTopNumericColumns(analysisRows, 8, ['NumeroEventos', 'ProvinciaID'])
+      .map((x) => ({
+        label: x.label,
+        total: x.total,
+        pct: totalEventos > 0 ? (x.total / totalEventos) * 100 : 0,
+      }))
+  }
 
   const typesText = rankedTypes.length
     ? rankedTypes.map((x) => `${x.label} (${formatPct(x.pct)}%)`).join(', ')
-    : 'sin datos'
+    : 'sin datos suficientes'
 
   const byProvincia = new Map()
   items.forEach((row) => {
     const provincia = String(row.Provincia || '').trim()
     if (!provincia) return
-    byProvincia.set(provincia, (byProvincia.get(provincia) || 0) + n(row.ImpactadasPersonas))
+    const base = n(row.ImpactadasPersonas) || n(row.NumeroEventos)
+    byProvincia.set(provincia, (byProvincia.get(provincia) || 0) + base)
   })
 
   const topProvincias = [...byProvincia.entries()]
@@ -143,11 +208,30 @@ function buildPuntosImportantes(items, tipoLluviasItems) {
     .map(([provincia]) => provincia)
 
   return {
-    line1: `Desde el 1 de enero de 2026 hasta la presente fecha se han registrado ${formatInt(totalEventos)} eventos adversos por lluvias afectando a ${formatInt(provincias)} provincias, ${formatInt(cantones)} cantones y ${formatInt(parroquias)} parroquias. Los eventos mas recurrentes corresponden a: ${typesText} entre los principales.`,
+    line1: `Desde el 1 de enero de 2026 hasta la presente fecha se han registrado ${formatInt(totalEventos)} eventos por ${TIPO_LABELS[tipo] || 'evento'} afectando a ${formatInt(provincias)} provincias, ${formatInt(cantones)} cantones y ${formatInt(parroquias)} parroquias. Los eventos mas recurrentes corresponden a: ${typesText} entre los principales.`,
     line2: topProvincias.length
       ? `En lo que va del anio 2026, las provincias con mayor impacto a la poblacion son: ${topProvincias.join(', ')}.`
       : 'En lo que va del anio 2026, no hay datos suficientes para identificar provincias con mayor impacto a la poblacion.',
   }
+}
+
+function buildSection4(items) {
+  const fixedCards = SUMMARY_FIELDS.map(([key, label]) => ({ key, label, value: items.reduce((acc, row) => acc + n(row[key]), 0) }))
+  const hasFixedData = fixedCards.some((card) => card.value > 0)
+
+  const cards = hasFixedData
+    ? fixedCards
+    : getTopNumericColumns(items, 6, ['NumeroEventos', 'ProvinciaID']).map((x) => ({ key: x.key, label: x.label, value: x.total }))
+
+  const normalizedCards = cards.length ? cards : [{ key: 'sin_datos', label: 'Sin datos', value: 0 }]
+
+  const lead = normalizedCards[0]
+  const second = normalizedCards[1]
+  const paragraph = second
+    ? `Los principales impactos reportados son ${lead.label.toLowerCase()} (${formatInt(lead.value)}) y ${second.label.toLowerCase()} (${formatInt(second.value)}).`
+    : `El principal impacto reportado es ${lead.label.toLowerCase()} (${formatInt(lead.value)}).`
+
+  return { cards: normalizedCards.slice(0, 6), paragraph }
 }
 
 function escapeXml(value) {
@@ -264,24 +348,25 @@ function App() {
     return query ? `${base}?${query}` : base
   }
 
-  const requestUrl = useMemo(() => {
-    const base = `${API_BASE_URL}${ENDPOINTS[tipo]}`
-    const trimmedProvincia = provinciaId.trim()
-
-    const params = new URLSearchParams()
-    if (PUBLIC_API_KEY) params.set('api_key', PUBLIC_API_KEY)
-    if (trimmedProvincia) params.set('ProvinciaID', trimmedProvincia)
-    const query = params.toString()
-    return query ? `${base}?${query}` : base
-  }, [tipo, provinciaId])
+  const requestUrl = useMemo(() => buildApiUrl(ENDPOINTS[tipo], provinciaId), [tipo, provinciaId])
 
   const items = responseData?.items ?? []
-  const detailRows = useMemo(
-    () => items.map((row, idx) => ({ __no__: idx + 1, ...row })),
-    [items]
-  )
-  const resumen = useMemo(() => buildResumen(items), [items])
-  const puntosImportantes = useMemo(() => buildPuntosImportantes(items, tipoLluviasItems), [items, tipoLluviasItems])
+  const analysisRows = tipo === 'lluvias' ? tipoLluviasItems : items
+  const currentDetailCols = useMemo(() => (tipo === 'lluvias' ? DETAIL_COLS : buildDynamicCols(items)), [tipo, items])
+  const detailRows = useMemo(() => {
+    const ordered = sortByNumeroEventosDesc(items)
+    return ordered.map((row, idx) => ({ __no__: idx + 1, ...row }))
+  }, [items])
+  const tipoLluviasRowsOrdered = useMemo(() => sortByNumeroEventosDesc(tipoLluviasItems), [tipoLluviasItems])
+  const puntosImportantes = useMemo(() => buildPuntosImportantes(items, analysisRows, tipo), [items, analysisRows, tipo])
+  const section4 = useMemo(() => buildSection4(items), [items])
+
+  useEffect(() => {
+    setResponseData(null)
+    setTipoLluviasItems([])
+    setError('')
+    setShowRawJson(false)
+  }, [tipo])
 
   const onConsultar = async (event) => {
     event.preventDefault()
@@ -319,13 +404,14 @@ function App() {
     }
   }
 
-  const onDescargarPdf = async () => {
+  const onDescargarPrincipal = async () => {
     if (!items.length) {
-      setError('Primero consulta datos para generar el PDF.')
+      setError('Primero consulta datos para generar la descarga.')
       return
     }
+
     if (tipo !== 'lluvias') {
-      setError('El PDF SITREP actual esta habilitado para Eventos por lluvias.')
+      downloadExcelXml(`detalle_${tipo}.xml`, 'DetalleConsulta', currentDetailCols, detailRows)
       return
     }
 
@@ -375,16 +461,16 @@ function App() {
           </label>
 
           <button type="submit" disabled={loading || !API_BASE_URL}>{loading ? 'Consultando...' : 'Consultar'}</button>
-          <button type="button" onClick={onDescargarPdf} disabled>Descargar PDF</button>
+          <button type="button"  onClick={onDescargarPrincipal} disabled={true}>
+            {'Descargar PDF'}
+          </button>
           <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled={!responseData}>{showRawJson ? 'Ocultar JSON' : 'Ver JSON'}</button>
         </form>
 
-        {(DEBUG === true) && (
-          <p className="request-url">GET {requestUrl}</p>
-        )}
-        {error && DEBUG && <p className="error">{error}</p>}
+        {DEBUG && <p className="request-url">GET {requestUrl}</p>}
+        {error && <p className="error">{error}</p>}
 
-        {tipo === 'lluvias' && items.length > 0 && (
+        {items.length > 0 && (
           <section className="preview">
             <h2>Vista Previa SITREP</h2>
 
@@ -395,42 +481,68 @@ function App() {
             </ul>
 
             <div className="block-title">3. Eventos Adversos y Afectaciones por Provincia</div>
-            <button
-              type="button"
-              onClick={() => downloadExcelXml('eventos_adversos_resumen.xml', 'EventosAdversos', TIPO_LLUVIAS_COLS, tipoLluviasItems)}
-              disabled={!tipoLluviasItems.length}
-            >
-              Descargar Excel - Seccion 3
-            </button>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>{TIPO_LLUVIAS_COLS.map(([, label]) => <th key={label}>{label}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {tipoLluviasItems.map((row, idx) => (
-                    <tr key={`tipo-${idx}`}>
-                      {TIPO_LLUVIAS_COLS.map(([key]) => <td key={`tipo-${idx}-${key}`}>{row[key] ?? '0'}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {tipo === 'lluvias' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => downloadExcelXml('eventos_adversos_resumen.xml', 'EventosAdversos', TIPO_LLUVIAS_COLS, tipoLluviasRowsOrdered)}
+                  disabled={!tipoLluviasRowsOrdered.length}
+                >
+                  Descargar Excel - Seccion 3
+                </button>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>{TIPO_LLUVIAS_COLS.map(([, label]) => <th key={label}>{label}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {tipoLluviasRowsOrdered.map((row, idx) => (
+                        <tr key={`tipo-${idx}`}>
+                          {TIPO_LLUVIAS_COLS.map(([key]) => <td key={`tipo-${idx}-${key}`}>{row[key] ?? '0'}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => downloadExcelXml(`eventos_adversos_${tipo}.xml`, 'EventosAdversos', currentDetailCols, detailRows)}
+                  disabled={!detailRows.length}
+                >
+                  Descargar Excel - Seccion 3
+                </button>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>{currentDetailCols.map(([, label]) => <th key={`s3-${label}`}>{label}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {detailRows.map((row, idx) => (
+                        <tr key={`s3-${idx}`}>
+                          {currentDetailCols.map(([key]) => <td key={`s3-${idx}-${key}`}>{row[key] ?? '0'}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
 
             <div className="block-title">4. Eventos Peligrosos y Afectaciones - Resumen</div>
+            <p className="muted">{section4.paragraph}</p>
             <div className="summary-grid">
-              <div><span>Personas afectadas</span><strong>{resumen.personasAfectadas}</strong></div>
-              <div><span>Familias afectadas</span><strong>{resumen.familiasAfectadas}</strong></div>
-              <div><span>Viviendas afectadas</span><strong>{resumen.viviendasAfectadas}</strong></div>
-              <div><span>Puentes afectados</span><strong>{resumen.puentesAfectados}</strong></div>
-              <div><span>Puentes destruidos</span><strong>{resumen.puentesDestruidos}</strong></div>
-              <div><span>Km vias afectadas</span><strong>{resumen.kmViasAfectadas.toFixed(2)}</strong></div>
+              {section4.cards.map((card) => (
+                <div key={card.key}><span>{card.label}</span><strong>{formatInt(card.value)}</strong></div>
+              ))}
             </div>
 
             <div className="block-title">5. Detalle de afectaciones por Provincia (de 1 de enero del anio 2026 a la fecha)</div>
             <button
               type="button"
-              onClick={() => downloadExcelXml('detalle_afectaciones.xml', 'DetalleAfectaciones', DETAIL_COLS, detailRows)}
+              onClick={() => downloadExcelXml(`detalle_${tipo}.xml`, 'DetalleAfectaciones', currentDetailCols, detailRows)}
               disabled={!items.length}
             >
               Descargar Excel - Seccion 5
@@ -438,12 +550,12 @@ function App() {
             <div className="table-wrap">
               <table>
                 <thead>
-                  <tr>{DETAIL_COLS.map(([, label]) => <th key={label}>{label}</th>)}</tr>
+                  <tr>{currentDetailCols.map(([, label]) => <th key={label}>{label}</th>)}</tr>
                 </thead>
                 <tbody>
                   {detailRows.map((row, idx) => (
                     <tr key={idx}>
-                      {DETAIL_COLS.map(([key]) => <td key={`${idx}-${key}`}>{row[key] ?? '0'}</td>)}
+                      {currentDetailCols.map(([key]) => <td key={`${idx}-${key}`}>{row[key] ?? '0'}</td>)}
                     </tr>
                   ))}
                 </tbody>

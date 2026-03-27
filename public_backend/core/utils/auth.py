@@ -8,6 +8,7 @@ def require_api_key(view_func):
     @wraps(view_func)
     def wrapper(*args, **kwargs):
         api_key = request.headers.get("X-API-Key") or request.args.get("api_key")
+        api_key = (api_key or "").strip()
 
         if not api_key:
             return jsonify({"error": "Missing api_key"}), 401
