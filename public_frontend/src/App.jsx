@@ -341,7 +341,7 @@ function App() {
           </label>
 
           <button type="submit" disabled={loading || !API_BASE_URL}>{loading ? 'Consultando...' : 'Consultar'}</button>
-          <button type="button" onClick={onDescargarPdf} disabled={loading || !items.length}>Descargar PDF</button>
+          <button type="button" onClick={onDescargarPdf} disabled>Descargar PDF</button>
           <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled={!responseData}>{showRawJson ? 'Ocultar JSON' : 'Ver JSON'}</button>
         </form>
 
