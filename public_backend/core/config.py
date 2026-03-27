@@ -16,15 +16,9 @@ class Config:
         if key.strip()
     ]
 
-    FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
-    FRONTEND_ORIGINS = [
-        origin.strip()
-        for origin in os.getenv(
-            "FRONTEND_ORIGINS",
-            "http://localhost:3000,http://localhost:5173",
-        ).split(",")
-        if origin.strip()
-    ]
+    _frontend_origins_env = os.getenv("FRONTEND_ORIGINS", "")
+    FRONTEND_ORIGINS = [origin.strip() for origin in _frontend_origins_env.split(",") if origin.strip()]
+    FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
 
     JWT_SECRET = os.getenv("JWT_SECRET", "")
     JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
