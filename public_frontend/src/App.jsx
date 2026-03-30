@@ -110,6 +110,37 @@ function sortByNumeroEventosDesc(rows) {
   return [...rows].sort((a, b) => n(b?.NumeroEventos) - n(a?.NumeroEventos))
 }
 
+function withTotalsRow(columns, rows) {
+  const totalRow = { __isTotal__: true }
+
+  columns.forEach(([key]) => {
+    if (key === '__no__') {
+      totalRow[key] = ''
+      return
+    }
+
+    if (key === 'Provincia') {
+      totalRow[key] = 'Total General'
+      return
+    }
+
+    const values = rows
+      .map((row) => row?.[key])
+      .filter((v) => v !== undefined && v !== null && String(v).trim() !== '')
+
+    const isNumeric = values.length > 0 && values.every((v) => Number.isFinite(Number(String(v).replace(',', '.'))))
+    if (!isNumeric) {
+      totalRow[key] = ''
+      return
+    }
+
+    const total = rows.reduce((acc, row) => acc + n(row?.[key]), 0)
+    totalRow[key] = key === 'AfectadosKilometros' ? Number(total.toFixed(2)) : total
+  })
+
+  return [...rows, totalRow]
+}
+
 function formatInt(v) {
   return Math.round(v).toLocaleString('es-EC')
 }
@@ -384,6 +415,10 @@ function App() {
     return ordered.map((row, idx) => ({ __no__: idx + 1, ...row }))
   }, [items])
   const tipoLluviasRowsOrdered = useMemo(() => sortByNumeroEventosDesc(tipoLluviasItems), [tipoLluviasItems])
+  const section3Cols = useMemo(() => (tipo === 'lluvias' ? TIPO_LLUVIAS_COLS : currentDetailCols), [tipo, currentDetailCols])
+  const section3BaseRows = useMemo(() => (tipo === 'lluvias' ? tipoLluviasRowsOrdered : detailRows), [tipo, tipoLluviasRowsOrdered, detailRows])
+  const section3RowsWithTotals = useMemo(() => withTotalsRow(section3Cols, section3BaseRows), [section3Cols, section3BaseRows])
+  const section5RowsWithTotals = useMemo(() => withTotalsRow(currentDetailCols, detailRows), [currentDetailCols, detailRows])
   const puntosImportantes = useMemo(() => buildPuntosImportantes(items, analysisRows, tipo), [items, analysisRows, tipo])
   const section4 = useMemo(() => buildSection4(items), [items])
   const detalleAnalisis = useMemo(() => buildDetalleAnalisis(detailRows), [detailRows])
@@ -438,7 +473,7 @@ function App() {
     }
 
     if (tipo !== 'lluvias') {
-      downloadExcelXml(`detalle_${tipo}.xml`, 'DetalleConsulta', currentDetailCols, detailRows)
+      downloadExcelXml(`detalle_${tipo}.xml`, 'DetalleConsulta', currentDetailCols, section5RowsWithTotals)
       return
     }
 
@@ -512,20 +547,20 @@ function App() {
               <>
                 <button
                   type="button"
-                  onClick={() => downloadExcelXml('eventos_adversos_resumen.xml', 'EventosAdversos', TIPO_LLUVIAS_COLS, tipoLluviasRowsOrdered)}
-                  disabled={!tipoLluviasRowsOrdered.length}
+                  onClick={() => downloadExcelXml('eventos_adversos_resumen.xml', 'EventosAdversos', section3Cols, section3RowsWithTotals)}
+                  disabled={!section3BaseRows.length}
                 >
                   Descargar Excel - Seccion 3
                 </button>
                 <div className="table-wrap">
                   <table>
                     <thead>
-                      <tr>{TIPO_LLUVIAS_COLS.map(([, label]) => <th key={label}>{label}</th>)}</tr>
+                      <tr>{section3Cols.map(([, label]) => <th key={label}>{label}</th>)}</tr>
                     </thead>
                     <tbody>
-                      {tipoLluviasRowsOrdered.map((row, idx) => (
-                        <tr key={`tipo-${idx}`}>
-                          {TIPO_LLUVIAS_COLS.map(([key]) => <td key={`tipo-${idx}-${key}`}>{row[key] ?? '0'}</td>)}
+                      {section3RowsWithTotals.map((row, idx) => (
+                        <tr key={`tipo-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
+                          {section3Cols.map(([key]) => <td key={`tipo-${idx}-${key}`}>{row[key] ?? '0'}</td>)}
                         </tr>
                       ))}
                     </tbody>
@@ -536,20 +571,20 @@ function App() {
               <>
                 <button
                   type="button"
-                  onClick={() => downloadExcelXml(`eventos_adversos_${tipo}.xml`, 'EventosAdversos', currentDetailCols, detailRows)}
-                  disabled={!detailRows.length}
+                  onClick={() => downloadExcelXml(`eventos_adversos_${tipo}.xml`, 'EventosAdversos', section3Cols, section3RowsWithTotals)}
+                  disabled={!section3BaseRows.length}
                 >
                   Descargar Excel - Seccion 3
                 </button>
                 <div className="table-wrap">
                   <table>
                     <thead>
-                      <tr>{currentDetailCols.map(([, label]) => <th key={`s3-${label}`}>{label}</th>)}</tr>
+                      <tr>{section3Cols.map(([, label]) => <th key={`s3-${label}`}>{label}</th>)}</tr>
                     </thead>
                     <tbody>
-                      {detailRows.map((row, idx) => (
-                        <tr key={`s3-${idx}`}>
-                          {currentDetailCols.map(([key]) => <td key={`s3-${idx}-${key}`}>{row[key] ?? '0'}</td>)}
+                      {section3RowsWithTotals.map((row, idx) => (
+                        <tr key={`s3-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
+                          {section3Cols.map(([key]) => <td key={`s3-${idx}-${key}`}>{row[key] ?? '0'}</td>)}
                         </tr>
                       ))}
                     </tbody>
@@ -570,7 +605,7 @@ function App() {
             <p className="muted">{detalleAnalisis}</p>
             <button
               type="button"
-              onClick={() => downloadExcelXml(`detalle_${tipo}.xml`, 'DetalleAfectaciones', currentDetailCols, detailRows)}
+              onClick={() => downloadExcelXml(`detalle_${tipo}.xml`, 'DetalleAfectaciones', currentDetailCols, section5RowsWithTotals)}
               disabled={!items.length}
             >
               Descargar Excel - Seccion 5
@@ -581,9 +616,11 @@ function App() {
                   <tr>{currentDetailCols.map(([, label]) => <th key={label}>{label}</th>)}</tr>
                 </thead>
                 <tbody>
-                  {detailRows.map((row, idx) => (
-                    <tr key={idx}>
-                      {currentDetailCols.map(([key]) => <td key={`${idx}-${key}`}>{row[key] ?? '0'}</td>)}
+                  {section5RowsWithTotals.map((row, idx) => (
+                    <tr key={idx} className={row.__isTotal__ ? 'total-row' : ''}>
+                      {currentDetailCols.map(([key]) => 
+                      <td key={`${idx}-${key}`}>{row[key] ?? '0'}</td>)}
+                      
                     </tr>
                   ))}
                 </tbody>

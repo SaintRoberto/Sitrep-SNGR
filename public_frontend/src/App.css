@@ -165,6 +165,12 @@ tbody td {
   text-align: center;
 }
 
+tr.total-row td {
+  background: #0a2a6e;
+  color: #fff;
+  font-weight: 700;
+}
+
 .result pre {
   margin: 0;
   padding: 12px;
