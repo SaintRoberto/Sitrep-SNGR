@@ -2,7 +2,6 @@ import pymysql
 from pymysql.cursors import DictCursor
 
 _db_config = None
-_db_connection = None
 
 
 def init_db(config):
@@ -34,15 +33,6 @@ def _create_connection():
 
 
 def get_db_connection():
-    global _db_connection
-
-    if _db_connection is None:
-        _db_connection = _create_connection()
-        return _db_connection
-
-    try:
-        _db_connection.ping(reconnect=True)
-    except Exception:
-        _db_connection = _create_connection()
-
-    return _db_connection
+    # Fresh connection per query/request avoids shared-connection race conditions
+    # when multiple endpoints are requested at the same time from the frontend.
+    return _create_connection()

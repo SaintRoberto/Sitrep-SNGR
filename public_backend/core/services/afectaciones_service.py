@@ -11,9 +11,12 @@ class AfectacionesServiceError(Exception):
 
 def _run_query(query, params=None):
     connection = get_db_connection()
-    with connection.cursor() as cursor:
-        cursor.execute(query, params or [])
-        return cursor.fetchall()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(query, params or [])
+            return cursor.fetchall()
+    finally:
+        connection.close()
 
 
 def test_db_connection():

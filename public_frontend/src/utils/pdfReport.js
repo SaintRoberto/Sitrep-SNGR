@@ -388,7 +388,57 @@ function drawSummaryGrid(doc, resumen, startY) {
   return startY + rows * cardH + (rows - 1) * 4 + 3
 }
 
-export function exportEventosLluviasPdf({ items = [], tipoLluviasItems = [], dpaTotals = null, provinciaId }) {
+function buildAsistenciaColumns(items) {
+  if (!items.length) return []
+  const first = items[0] || {}
+  const keys = Object.keys(first)
+  const priority = ['Provincias', 'Provincia', 'Familias Beneficiadas', 'Personas Beneficiadas', 'Total Bienes', 'ProvinciaID']
+  const ordered = [...priority.filter((k) => keys.includes(k)), ...keys.filter((k) => !priority.includes(k))]
+
+  return [
+    { key: '__no__', label: 'No.', type: 'index', vertical: false },
+    ...ordered.map((key) => ({
+      key,
+      label: String(key).replaceAll('_', ' ').trim(),
+      type: toNumber(first[key]) || String(first[key] ?? '').trim() === '0' ? 'number' : 'text',
+      vertical: !['Provincias', 'Provincia'].includes(key),
+    })),
+  ]
+}
+
+function filterAsistenciaColumnsByTotals(columns, items) {
+  return columns.filter((col) => {
+    if (col.key === '__no__' || col.key === 'Provincias' || col.key === 'Provincia') return true
+    if (col.type !== 'number') return true
+    const total = items.reduce((acc, row) => acc + toNumber(row?.[col.key]), 0)
+    return total !== 0
+  })
+}
+
+function buildAsistenciaTableData(items, columns) {
+  const sorted = [...items].sort((a, b) => toNumber(b['Total Bienes']) - toNumber(a['Total Bienes']))
+  const dataRows = sorted.map((row, index) => {
+    const out = { __isTotal__: false }
+    columns.forEach((col) => {
+      if (col.type === 'index') out[col.key] = index + 1
+      else if (col.type === 'number') out[col.key] = toNumber(row?.[col.key])
+      else out[col.key] = String(row?.[col.key] ?? '')
+    })
+    return out
+  })
+
+  const totals = { __isTotal__: true }
+  columns.forEach((col) => {
+    if (col.type === 'index') totals[col.key] = ''
+    else if (col.type === 'number') totals[col.key] = dataRows.reduce((acc, r) => acc + toNumber(r[col.key]), 0)
+    else if (col.key === 'Provincias' || col.key === 'Provincia') totals[col.key] = 'Total General'
+    else totals[col.key] = ''
+  })
+
+  return [...dataRows, totals]
+}
+
+export function exportEventosLluviasPdf({ items = [], tipoLluviasItems = [], asistenciaItems = [], dpaTotals = null, provinciaId }) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
   const now = new Date()
   const dateLabel = now.toLocaleDateString('es-EC')
@@ -397,14 +447,13 @@ export function exportEventosLluviasPdf({ items = [], tipoLluviasItems = [], dpa
   const resumen = summarize(items)
   const puntosImportantes = buildPuntosImportantesLines(items, tipoLluviasItems, dpaTotals)
   const introTokens = buildImpactTokens(items, 8)
-  const fechaInicioEventosAdversos = getFieldByAliases(
-    tipoLluviasItems[0] || {},
-    ['fecha_inicio', 'FechaInicio', 'Fecha_Inicio'],
-    'N/A'
-  )
   const tipoLluviasTableData = buildTipoLluviasTableData(tipoLluviasItems)
+  const asistenciaColumns = filterAsistenciaColumnsByTotals(buildAsistenciaColumns(asistenciaItems), asistenciaItems)
+  const asistenciaTableData = buildAsistenciaTableData(asistenciaItems, asistenciaColumns)
+  const asistenciaTotalGeneral = asistenciaItems.reduce((acc, row) => acc + toNumber(row?.['Total Bienes']), 0)
   const tableData = buildTableData(items)
   const tipoLluviasBodyRows = tipoLluviasTableData.map((r) => TIPO_LLUVIAS_TABLE_COLUMNS.map((c) => r[c.key]))
+  const asistenciaBodyRows = asistenciaTableData.map((r) => asistenciaColumns.map((c) => r[c.key]))
   const bodyRows = tableData.map((r) => DETAIL_COLUMNS.map((c) => r[c.key]))
   const filtroText = provinciaId ? `ProvinciaID: ${provinciaId}` : 'ProvinciaID: Todos'
 
@@ -436,7 +485,7 @@ export function exportEventosLluviasPdf({ items = [], tipoLluviasItems = [], dpa
   doc.setFontSize(9)
   y = drawWrappedText(
     doc,
-    `Desde ${fechaInicioEventosAdversos} a la fecha se registraron un total de ${formatInt(puntosImportantes.totalEventos)} eventos adversos, distribuidos de la siguiente manera:`,
+    `Desde el 1 de enero del 2026 a la fecha se registraron un total de ${formatInt(puntosImportantes.totalEventos)} eventos adversos, distribuidos de la siguiente manera:`,
     PAGE.left,
     y,
     PAGE.width
@@ -550,7 +599,66 @@ export function exportEventosLluviasPdf({ items = [], tipoLluviasItems = [], dpa
     },
   })
 
+  y = doc.lastAutoTable.finalY + 4
+  if (asistenciaColumns.length && asistenciaBodyRows.length && asistenciaTotalGeneral > 0) {
+    doc.addPage('a4', 'landscape')
+    y = PAGE.top
+
+    y = drawSectionTitle(doc, '6. Asistencia Humanitaria', y)
+    doc.setTextColor(30, 41, 59)    
+    doc.setFontSize(9)
+
+    y += 1
+
+    autoTable(doc, {
+      startY: y,
+      head: [asistenciaColumns.map((c) => c.label)],
+      body: asistenciaBodyRows,
+      theme: 'grid',
+      margin: { left: PAGE.left, right: PAGE.right },
+      styles: { fontSize: 6, cellPadding: 0.7, halign: 'center', valign: 'middle', lineWidth: 0.15 },
+      headStyles: {
+        fillColor: BLUE,
+        textColor: [255, 255, 255],
+        lineColor: [200, 210, 230],
+        minCellHeight: 32,
+      },
+      alternateRowStyles: { fillColor: [245, 248, 255] },
+      didParseCell: (hookData) => {
+        const { cell, column, row, section } = hookData
+        if (section === 'head') {
+          const col = asistenciaColumns[column.index]
+          if (col?.key === 'Provincias' || col?.key === 'Provincia') {
+            cell.styles.halign = 'left'
+          }
+          if (col?.vertical) {
+            cell.text = ['']
+            cell.styles.minCellHeight = 32
+          }
+        }
+        if (section === 'body') {
+          const col = asistenciaColumns[column.index]
+          if (col?.key === 'Provincias' || col?.key === 'Provincia') {
+            cell.styles.halign = 'left'
+          }
+          const isTotalRow = row.index === asistenciaBodyRows.length - 1
+          if (isTotalRow) {
+            cell.styles.fillColor = BLUE
+            cell.styles.textColor = [255, 255, 255]
+            cell.styles.fontStyle = 'bold'
+          }
+        }
+      },
+      didDrawCell: (hookData) => {
+        const { cell, column, section } = hookData
+        if (section !== 'head') return
+        const col = asistenciaColumns[column.index]
+        if (!col?.vertical) return
+        drawVerticalHeaderLabel(doc, col, cell)
+      },
+    })
+  }
+
   const fileSuffix = provinciaId ? `provincia_${provinciaId}` : 'todas'
   doc.save(`sitrep_lluvias_preview_style_${fileSuffix}.pdf`)
 }
-

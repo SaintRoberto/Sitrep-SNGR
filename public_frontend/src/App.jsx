@@ -16,6 +16,7 @@ const ENDPOINTS = {
   incendios: '/api/public/eventos-por-incendios-forestales',
   tipoLluvias: '/api/public/eventos-por-tipo-lluvias',
   lluviasTotalPorDpa: '/api/public/eventos-por-lluvias-total-por-dpa',
+  asistenciaHumanitariaLluvias: '/api/public/asistencia-humanitaria-por-sndgird-por-lluvias',
 }
 
 const TIPO_LABELS = {
@@ -91,15 +92,6 @@ const EVENT_TYPES = [
   ['Caidas_Colapso', 'caidas (colapsos)'],
   ['Tormenta_Electrica', 'tormentas electricas'],
   ['Granizada', 'granizadas'],
-]
-
-const SUMMARY_FIELDS = [
-  ['AfectadosPersonas', 'Personas afectadas'],
-  ['AfectadosFamilias', 'Familias afectadas'],
-  ['AfectadosViviendas', 'Viviendas afectadas'],
-  ['AfectadosPuentes', 'Puentes afectados'],
-  ['DestruidosPuentes', 'Puentes destruidos'],
-  ['AfectadosKilometros', 'Km vias afectadas'],
 ]
 
 function n(v) {
@@ -179,11 +171,9 @@ function getTopNumericColumns(items, limit = 8, excludeKeys = []) {
     .map(([key, total]) => ({ key, label: prettifyLabel(key), total }))
 }
 
-function buildDynamicCols(items) {
+function buildDynamicCols(items, priority = ['Provincia', 'NumeroEventos', 'ProvinciaID']) {
   const first = items[0] || {}
   const keys = Object.keys(first)
-
-  const priority = ['Provincia', 'NumeroEventos', 'ProvinciaID']
   const ordered = [
     ...priority.filter((key) => keys.includes(key)),
     ...keys.filter((key) => !priority.includes(key)),
@@ -255,23 +245,35 @@ function buildPuntosImportantes(items, analysisRows, tipo, dpaTotals = null) {
   }
 }
 
-function buildSection4(items) {
-  const fixedCards = SUMMARY_FIELDS.map(([key, label]) => ({ key, label, value: items.reduce((acc, row) => acc + n(row[key]), 0) }))
-  const hasFixedData = fixedCards.some((card) => card.value > 0)
+function buildSection4(columns, rows) {
+  const cards = columns
+    .filter(([key]) => key !== '__no__')
+    .map(([key, label]) => {
+      const values = rows
+        .map((row) => row?.[key])
+        .filter((v) => v !== undefined && v !== null && String(v).trim() !== '')
 
-  const cards = hasFixedData
-    ? fixedCards
-    : getTopNumericColumns(items, 6, ['NumeroEventos', 'ProvinciaID']).map((x) => ({ key: x.key, label: x.label, value: x.total }))
+      const isNumeric = values.length > 0 && values.every((v) => Number.isFinite(Number(String(v).replace(',', '.'))))
+      if (!isNumeric) return null
 
+      const total = rows.reduce((acc, row) => acc + n(row?.[key]), 0)
+      const roundedTotal = key === 'AfectadosKilometros' ? Number(total.toFixed(2)) : total
+      return { key, label, value: roundedTotal }
+    })
+    .filter(Boolean)
+
+  const nonZero = cards.filter((x) => x.value > 0).sort((a, b) => b.value - a.value)
   const normalizedCards = cards.length ? cards : [{ key: 'sin_datos', label: 'Sin datos', value: 0 }]
 
-  const lead = normalizedCards[0]
-  const second = normalizedCards[1]
-  const paragraph = second
-    ? `Los principales impactos reportados son ${lead.label.toLowerCase()} (${formatInt(lead.value)}) y ${second.label.toLowerCase()} (${formatInt(second.value)}).`
-    : `El principal impacto reportado es ${lead.label.toLowerCase()} (${formatInt(lead.value)}).`
+  const lead = nonZero[0]
+  const second = nonZero[1]
+  const paragraph = lead && second
+    ? `Por los eventos detallados en la tabla, se han registrado las siguitentes afectaciones:`
+    : lead
+      ? `El principal impacto reportado es ${lead.label.toLowerCase()} (${formatInt(lead.value)}).`
+      : 'No hay datos suficientes para generar el resumen de afectaciones.'
 
-  return { cards: normalizedCards.slice(0, 6), paragraph }
+  return { cards: normalizedCards, paragraph }
 }
 
 function buildDetalleAnalisis(rows) {
@@ -395,6 +397,13 @@ function downloadExcelXml(filename, sheetName, columns, rows) {
   URL.revokeObjectURL(url)
 }
 
+function formatCardValue(key, value) {
+  if (key === 'AfectadosKilometros') {
+    return Number(value || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+  return formatInt(value)
+}
+
 function App() {
   const [tipo, setTipo] = useState('lluvias')
   const [provinciaId, setProvinciaId] = useState('')
@@ -402,6 +411,7 @@ function App() {
   const [error, setError] = useState('')
   const [responseData, setResponseData] = useState(null)
   const [tipoLluviasItems, setTipoLluviasItems] = useState([])
+  const [asistenciaItems, setAsistenciaItems] = useState([])
   const [dpaTotals, setDpaTotals] = useState(null)
   const [showRawJson, setShowRawJson] = useState(false)
 
@@ -441,12 +451,51 @@ function App() {
     () => buildPuntosImportantes(items, analysisRows, tipo, dpaTotals),
     [items, analysisRows, tipo, dpaTotals]
   )
-  const section4 = useMemo(() => buildSection4(items), [items])
+  const section4 = useMemo(() => buildSection4(currentDetailCols, detailRows), [currentDetailCols, detailRows])
   const detalleAnalisis = useMemo(() => buildDetalleAnalisis(detailRows), [detailRows])
+  const section6Cols = useMemo(
+    () =>
+      buildDynamicCols(asistenciaItems, [
+        'Provincias',
+        'Provincia',
+        'Familias Beneficiadas',
+        'Personas Beneficiadas',
+        'Total Bienes',
+        'ProvinciaID',
+      ]),
+    [asistenciaItems]
+  )
+  const section6Rows = useMemo(() => {
+    const sorted = [...asistenciaItems].sort((a, b) => n(b?.['Total Bienes']) - n(a?.['Total Bienes']))
+    return sorted.map((row, idx) => ({ __no__: idx + 1, ...row }))
+  }, [asistenciaItems])
+  const section6ColsFiltered = useMemo(
+    () =>
+      section6Cols.filter(([key]) => {
+        if (key === '__no__' || key === 'Provincia' || key === 'Provincias') return true
+
+        const values = section6Rows
+          .map((row) => row?.[key])
+          .filter((v) => v !== undefined && v !== null && String(v).trim() !== '')
+        const isNumeric = values.length > 0 && values.every((v) => Number.isFinite(Number(String(v).replace(',', '.'))))
+        if (!isNumeric) return true
+
+        const total = section6Rows.reduce((acc, row) => acc + n(row?.[key]), 0)
+        return total !== 0
+      }),
+    [section6Cols, section6Rows]
+  )
+  const section6RowsWithTotals = useMemo(() => withTotalsRow(section6ColsFiltered, section6Rows), [section6ColsFiltered, section6Rows])
+  const section6TotalGeneral = useMemo(
+    () => section6Rows.reduce((acc, row) => acc + n(row?.['Total Bienes']), 0),
+    [section6Rows]
+  )
+  const shouldShowSection6 = useMemo(() => section6Rows.length > 0 && section6TotalGeneral > 0, [section6Rows.length, section6TotalGeneral])
 
   useEffect(() => {
     setResponseData(null)
     setTipoLluviasItems([])
+    setAsistenciaItems([])
     setDpaTotals(null)
     setError('')
     setShowRawJson(false)
@@ -464,24 +513,29 @@ function App() {
         const trimmedProvincia = provinciaId.trim()
         const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias, trimmedProvincia)
         const dpaTotalsUrl = buildApiUrl(ENDPOINTS.lluviasTotalPorDpa, trimmedProvincia)
+        const asistenciaUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluvias, trimmedProvincia)
 
-        const [responseMain, responseTipos, responseDpa] = await Promise.all([
+        const [responseMain, responseTipos, responseDpa, responseAsistencia] = await Promise.all([
           fetch(requestUrl),
           fetch(tipoLluviasUrl),
           fetch(dpaTotalsUrl),
+          fetch(asistenciaUrl),
         ])
-        const [dataMain, dataTipos, dataDpa] = await Promise.all([
+        const [dataMain, dataTipos, dataDpa, dataAsistencia] = await Promise.all([
           responseMain.json(),
           responseTipos.json(),
           responseDpa.json(),
+          responseAsistencia.json(),
         ])
 
         if (!responseMain.ok) throw new Error(dataMain?.error || 'Error consultando API')
         if (!responseTipos.ok) throw new Error(dataTipos?.error || 'Error consultando eventos por tipo de lluvias')
         if (!responseDpa.ok) throw new Error(dataDpa?.error || 'Error consultando totales DPA')
+        if (!responseAsistencia.ok) throw new Error(dataAsistencia?.error || 'Error consultando asistencia humanitaria')
 
         setResponseData(dataMain)
         setTipoLluviasItems(dataTipos?.items || [])
+        setAsistenciaItems(dataAsistencia?.items || [])
         setDpaTotals((dataDpa?.items || [])[0] || null)
       } else {
         const response = await fetch(requestUrl)
@@ -489,11 +543,13 @@ function App() {
         if (!response.ok) throw new Error(data?.error || 'Error consultando API')
         setResponseData(data)
         setTipoLluviasItems([])
+        setAsistenciaItems([])
         setDpaTotals(null)
       }
     } catch (err) {
       setResponseData(null)
       setTipoLluviasItems([])
+      setAsistenciaItems([])
       setDpaTotals(null)
       setError(err.message)
     } finally {
@@ -519,15 +575,26 @@ function App() {
       const trimmedProvincia = provinciaId.trim()
       const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias, trimmedProvincia)
       const dpaTotalsUrl = buildApiUrl(ENDPOINTS.lluviasTotalPorDpa, trimmedProvincia)
+      const asistenciaUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluvias, trimmedProvincia)
 
-      const [responseTipos, responseDpa] = await Promise.all([fetch(tipoLluviasUrl), fetch(dpaTotalsUrl)])
-      const [dataTipos, dataDpa] = await Promise.all([responseTipos.json(), responseDpa.json()])
+      const [responseTipos, responseDpa, responseAsistencia] = await Promise.all([
+        fetch(tipoLluviasUrl),
+        fetch(dpaTotalsUrl),
+        fetch(asistenciaUrl),
+      ])
+      const [dataTipos, dataDpa, dataAsistencia] = await Promise.all([
+        responseTipos.json(),
+        responseDpa.json(),
+        responseAsistencia.json(),
+      ])
       if (!responseTipos.ok) throw new Error(dataTipos?.error || 'Error consultando eventos por tipo de lluvias')
       if (!responseDpa.ok) throw new Error(dataDpa?.error || 'Error consultando totales DPA')
+      if (!responseAsistencia.ok) throw new Error(dataAsistencia?.error || 'Error consultando asistencia humanitaria')
 
       exportEventosLluviasPdf({
         items,
         tipoLluviasItems: dataTipos?.items || [],
+        asistenciaItems: dataAsistencia?.items || [],
         dpaTotals: (dataDpa?.items || [])[0] || null,
         provinciaId: provinciaId.trim() || null,
       })
@@ -561,11 +628,11 @@ function App() {
           </label>
 
           <button type="submit" disabled={loading || !API_BASE_URL}>{loading ? 'Consultando...' : 'Consultar'}</button>
-          <button type="button"  onClick={onDescargarPrincipal} disabled={true}>
+          <button type="button"  onClick={onDescargarPrincipal} disabled={loading || !items.length}>
             {'Descargar PDF'}
           </button>
-          <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled="true">
-            {showRawJson ? 'Ver JSON' : 'Ver JSON'}
+          <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled={!responseData}>
+            {showRawJson ? 'Ocultar JSON' : 'Ver JSON'}
           </button>
         </form>
 
@@ -593,7 +660,7 @@ function App() {
                   Descargar Excel - Seccion 3
                 </button>
                 <div className="table-wrap">
-                  <p>Desde {section3BaseRows[0]?.fecha_inicio || 'N/A'} a la fecha se registraron un total de {formatInt(totalEventosAdversos)} eventos
+                  <p>Desde el 1 de enero del 2026 a la fecha se registraron un total de {formatInt(totalEventosAdversos)} eventos
                     adversos, distribuidos de la siguiente manera:
                   </p>
                   <table>
@@ -620,6 +687,9 @@ function App() {
                   Descargar Excel - Seccion 3
                 </button>
                 <div className="table-wrap">
+                  <p>Desde el 1 de enero del 2026 a la fecha se registraron un total de {formatInt(totalEventosAdversos)} eventos
+                    adversos, distribuidos de la siguiente manera:
+                  </p>
                   <table>
                     <thead>
                       <tr>{section3Cols.map(([, label]) => <th key={`s3-${label}`}>{label}</th>)}</tr>
@@ -636,15 +706,15 @@ function App() {
               </>
             )}
 
-            <div className="block-title">4.1 Eventos Peligrosos y Afectaciones - Resumen</div>
+            <div className="block-title">4. Eventos Peligrosos y Afectaciones - Resumen</div>
             <p className="muted">{section4.paragraph}</p>
             <div className="summary-grid">
               {section4.cards.map((card) => (
-                <div key={card.key}><span>{card.label}</span><strong>{formatInt(card.value)}</strong></div>
+                <div key={card.key}><span>{card.label}</span><strong>{formatCardValue(card.key, card.value)}</strong></div>
               ))}
             </div>
 
-            <div className="block-title">4.2 Detalle de afectaciones por Provincia (de 1 de enero del anio 2026 a la fecha)</div>
+            <div className="block-title">5. Detalle de afectaciones por Provincia (de 1 de enero del anio 2026 a la fecha)</div>
             <p className="muted">{detalleAnalisis}</p>
             <button
               type="button"
@@ -669,6 +739,33 @@ function App() {
                 </tbody>
               </table>
             </div>
+
+            {tipo === 'lluvias' && shouldShowSection6 && (
+              <>
+                <div className="block-title">6. Asistencia Humanitaria</div>
+                <button
+                  type="button"
+                  onClick={() => downloadExcelXml('asistencia_humanitaria.xml', 'AsistenciaHumanitaria', section6ColsFiltered, section6RowsWithTotals)}
+                  disabled={!shouldShowSection6}
+                >
+                  Descargar Excel - Seccion 6
+                </button>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>{section6ColsFiltered.map(([, label]) => <th key={`s6-${label}`}>{label}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {section6RowsWithTotals.map((row, idx) => (
+                        <tr key={`s6-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
+                          {section6ColsFiltered.map(([key]) => <td key={`s6-${idx}-${key}`}>{row[key] ?? '0'}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </section>
         )}
 
