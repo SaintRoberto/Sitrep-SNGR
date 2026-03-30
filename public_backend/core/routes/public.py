@@ -7,6 +7,9 @@ from ..services.afectaciones_service import (
     get_eventos_por_lluvias,
     get_eventos_por_tipo_lluvias,
     test_db_connection,
+    get_asistencia_humanitaria_por_lluvias,
+    get_eventos_por_lluvias_lluvias_total_por_dpa,
+    get_eventos_por_lluvias_km_vias_por_categoria,
 )
 from ..utils.auth import require_api_key
 

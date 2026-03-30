@@ -205,25 +205,33 @@ function summarizeEventosAdversos(tipoLluviasItems) {
   return { totalEventos, ordered }
 }
 
-function buildPuntosImportantesLines(items, tipoLluviasItems) {
+function buildPuntosImportantesLines(items, tipoLluviasItems, dpaTotals = null) {
   const adverse = summarizeEventosAdversos(tipoLluviasItems)
-  const provinciasCount = countUniqueByAliases(items, ['Provincia'])
-  const cantonesCount = countUniqueByAliases(items, ['Canton', 'CantonNombre'])
-  const parroquiasCount = countUniqueByAliases(items, ['Parroquia', 'ParroquiaNombre'])
+  const totalEventosFallback = items.reduce((acc, row) => acc + toNumber(row.NumeroEventos), 0)
+  const totalEventos = adverse.totalEventos > 0 ? adverse.totalEventos : totalEventosFallback
+  const provinciasCount = Number.isFinite(Number(dpaTotals?.TotalProvincias))
+    ? Number(dpaTotals.TotalProvincias)
+    : countUniqueByAliases(items, ['Provincia'])
+  const cantonesCount = Number.isFinite(Number(dpaTotals?.TotalCantones))
+    ? Number(dpaTotals.TotalCantones)
+    : countUniqueByAliases(items, ['Canton', 'CantonNombre'])
+  const parroquiasCount = Number.isFinite(Number(dpaTotals?.TotalParroquias))
+    ? Number(dpaTotals.TotalParroquias)
+    : countUniqueByAliases(items, ['Parroquia', 'ParroquiaNombre'])
   const principales = adverse.ordered.slice(0, 8)
 
   const principalesText = principales.length
     ? `${principales.map((x) => `${x.label} (${formatPct(x.pct)}%)`).join(', ')} entre los principales.`
     : 'sin eventos recurrentes identificables.'
 
-  const line1 = `Desde el 1 de enero de 2026 hasta la presente fecha se han registrado ${formatInt(adverse.totalEventos)} eventos adversos por lluvias afectando a ${formatInt(provinciasCount)} provincias, ${formatInt(cantonesCount)} cantones y ${formatInt(parroquiasCount)} parroquias. Los eventos mas recurrentes corresponden a: ${principalesText}`
+  const line1 = `Desde el 1 de enero de 2026 hasta la presente fecha se han registrado ${formatInt(totalEventos)} eventos adversos por lluvias afectando a ${formatInt(provinciasCount)} provincias, ${formatInt(cantonesCount)} cantones y ${formatInt(parroquiasCount)} parroquias. Los eventos mas recurrentes corresponden a: ${principalesText}`
 
   const topImpactProvincias = buildImpactRanking(items, 8).map((x) => x.provincia)
   const line2 = topImpactProvincias.length
     ? `En lo que va del anio 2026, las provincias con mayor impacto a la poblacion son: ${topImpactProvincias.join(', ')}.`
     : 'En lo que va del anio 2026, no hay datos suficientes para identificar provincias con mayor impacto a la poblacion.'
 
-  return { line1, line2, adverse }
+  return { line1, line2, adverse, totalEventos }
 }
 
 function drawBulletText(doc, text, x, y, maxWidth, lineHeight = 4.1) {
@@ -380,15 +388,20 @@ function drawSummaryGrid(doc, resumen, startY) {
   return startY + rows * cardH + (rows - 1) * 4 + 3
 }
 
-export function exportEventosLluviasPdf({ items = [], tipoLluviasItems = [], provinciaId }) {
+export function exportEventosLluviasPdf({ items = [], tipoLluviasItems = [], dpaTotals = null, provinciaId }) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
   const now = new Date()
   const dateLabel = now.toLocaleDateString('es-EC')
   const timeLabel = now.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })
 
   const resumen = summarize(items)
-  const puntosImportantes = buildPuntosImportantesLines(items, tipoLluviasItems)
+  const puntosImportantes = buildPuntosImportantesLines(items, tipoLluviasItems, dpaTotals)
   const introTokens = buildImpactTokens(items, 8)
+  const fechaInicioEventosAdversos = getFieldByAliases(
+    tipoLluviasItems[0] || {},
+    ['fecha_inicio', 'FechaInicio', 'Fecha_Inicio'],
+    'N/A'
+  )
   const tipoLluviasTableData = buildTipoLluviasTableData(tipoLluviasItems)
   const tableData = buildTableData(items)
   const tipoLluviasBodyRows = tipoLluviasTableData.map((r) => TIPO_LLUVIAS_TABLE_COLUMNS.map((c) => r[c.key]))
@@ -419,6 +432,16 @@ export function exportEventosLluviasPdf({ items = [], tipoLluviasItems = [], pro
   y += 2
 
   y = drawSectionTitle(doc, '3. Eventos Adversos y Afectaciones - Resumen', y)
+  doc.setTextColor(30, 41, 59)
+  doc.setFontSize(9)
+  y = drawWrappedText(
+    doc,
+    `Desde ${fechaInicioEventosAdversos} a la fecha se registraron un total de ${formatInt(puntosImportantes.totalEventos)} eventos adversos, distribuidos de la siguiente manera:`,
+    PAGE.left,
+    y,
+    PAGE.width
+  )
+  y += 1
   autoTable(doc, {
     startY: y,
     head: [TIPO_LLUVIAS_TABLE_COLUMNS.map((c) => c.label)],

@@ -15,6 +15,7 @@ const ENDPOINTS = {
   noLluvias: '/api/public/eventos-no-por-lluvias',
   incendios: '/api/public/eventos-por-incendios-forestales',
   tipoLluvias: '/api/public/eventos-por-tipo-lluvias',
+  lluviasTotalPorDpa: '/api/public/eventos-por-lluvias-total-por-dpa',
 }
 
 const TIPO_LABELS = {
@@ -194,11 +195,19 @@ function buildDynamicCols(items) {
   ]
 }
 
-function buildPuntosImportantes(items, analysisRows, tipo) {
-  const totalEventos = analysisRows.reduce((acc, row) => acc + n(row.NumeroEventos), 0)
-  const provincias = new Set(items.map((row) => String(row.Provincia || '').trim()).filter(Boolean)).size
-  const cantones = new Set(items.map((row) => String(row.Canton || row.CantonNombre || '').trim()).filter(Boolean)).size
-  const parroquias = new Set(items.map((row) => String(row.Parroquia || row.ParroquiaNombre || '').trim()).filter(Boolean)).size
+function buildPuntosImportantes(items, analysisRows, tipo, dpaTotals = null) {
+  const totalEventosAnalysis = analysisRows.reduce((acc, row) => acc + n(row.NumeroEventos), 0)
+  const totalEventosItems = items.reduce((acc, row) => acc + n(row.NumeroEventos), 0)
+  const totalEventos = totalEventosAnalysis > 0 ? totalEventosAnalysis : totalEventosItems
+  const provincias = Number.isFinite(Number(dpaTotals?.TotalProvincias))
+    ? Number(dpaTotals.TotalProvincias)
+    : new Set(items.map((row) => String(row.Provincia || '').trim()).filter(Boolean)).size
+  const cantones = Number.isFinite(Number(dpaTotals?.TotalCantones))
+    ? Number(dpaTotals.TotalCantones)
+    : new Set(items.map((row) => String(row.Canton || row.CantonNombre || '').trim()).filter(Boolean)).size
+  const parroquias = Number.isFinite(Number(dpaTotals?.TotalParroquias))
+    ? Number(dpaTotals.TotalParroquias)
+    : new Set(items.map((row) => String(row.Parroquia || row.ParroquiaNombre || '').trim()).filter(Boolean)).size
 
   let rankedTypes = []
 
@@ -237,7 +246,7 @@ function buildPuntosImportantes(items, analysisRows, tipo) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
     .map(([provincia]) => provincia)
-
+  
   return {
     line1: `Desde el 1 de enero de 2026 hasta la presente fecha se han registrado ${formatInt(totalEventos)} eventos por ${TIPO_LABELS[tipo] || 'evento'} afectando a ${formatInt(provincias)} provincias, ${formatInt(cantones)} cantones y ${formatInt(parroquias)} parroquias. Los eventos mas recurrentes corresponden a: ${typesText} entre los principales.`,
     line2: topProvincias.length
@@ -393,6 +402,7 @@ function App() {
   const [error, setError] = useState('')
   const [responseData, setResponseData] = useState(null)
   const [tipoLluviasItems, setTipoLluviasItems] = useState([])
+  const [dpaTotals, setDpaTotals] = useState(null)
   const [showRawJson, setShowRawJson] = useState(false)
 
   const buildApiUrl = (endpointPath, provinciaValue = '') => {
@@ -418,14 +428,26 @@ function App() {
   const section3Cols = useMemo(() => (tipo === 'lluvias' ? TIPO_LLUVIAS_COLS : currentDetailCols), [tipo, currentDetailCols])
   const section3BaseRows = useMemo(() => (tipo === 'lluvias' ? tipoLluviasRowsOrdered : detailRows), [tipo, tipoLluviasRowsOrdered, detailRows])
   const section3RowsWithTotals = useMemo(() => withTotalsRow(section3Cols, section3BaseRows), [section3Cols, section3BaseRows])
+  const totalEventosAdversos = useMemo(
+    () => {
+      const fromSection3 = section3BaseRows.reduce((acc, row) => acc + n(row?.NumeroEventos), 0)
+      if (fromSection3 > 0) return fromSection3
+      return items.reduce((acc, row) => acc + n(row?.NumeroEventos), 0)
+    },
+    [section3BaseRows, items]
+  )
   const section5RowsWithTotals = useMemo(() => withTotalsRow(currentDetailCols, detailRows), [currentDetailCols, detailRows])
-  const puntosImportantes = useMemo(() => buildPuntosImportantes(items, analysisRows, tipo), [items, analysisRows, tipo])
+  const puntosImportantes = useMemo(
+    () => buildPuntosImportantes(items, analysisRows, tipo, dpaTotals),
+    [items, analysisRows, tipo, dpaTotals]
+  )
   const section4 = useMemo(() => buildSection4(items), [items])
   const detalleAnalisis = useMemo(() => buildDetalleAnalisis(detailRows), [detailRows])
 
   useEffect(() => {
     setResponseData(null)
     setTipoLluviasItems([])
+    setDpaTotals(null)
     setError('')
     setShowRawJson(false)
   }, [tipo])
@@ -441,25 +463,38 @@ function App() {
       if (tipo === 'lluvias') {
         const trimmedProvincia = provinciaId.trim()
         const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias, trimmedProvincia)
+        const dpaTotalsUrl = buildApiUrl(ENDPOINTS.lluviasTotalPorDpa, trimmedProvincia)
 
-        const [responseMain, responseTipos] = await Promise.all([fetch(requestUrl), fetch(tipoLluviasUrl)])
-        const [dataMain, dataTipos] = await Promise.all([responseMain.json(), responseTipos.json()])
+        const [responseMain, responseTipos, responseDpa] = await Promise.all([
+          fetch(requestUrl),
+          fetch(tipoLluviasUrl),
+          fetch(dpaTotalsUrl),
+        ])
+        const [dataMain, dataTipos, dataDpa] = await Promise.all([
+          responseMain.json(),
+          responseTipos.json(),
+          responseDpa.json(),
+        ])
 
         if (!responseMain.ok) throw new Error(dataMain?.error || 'Error consultando API')
         if (!responseTipos.ok) throw new Error(dataTipos?.error || 'Error consultando eventos por tipo de lluvias')
+        if (!responseDpa.ok) throw new Error(dataDpa?.error || 'Error consultando totales DPA')
 
         setResponseData(dataMain)
         setTipoLluviasItems(dataTipos?.items || [])
+        setDpaTotals((dataDpa?.items || [])[0] || null)
       } else {
         const response = await fetch(requestUrl)
         const data = await response.json()
         if (!response.ok) throw new Error(data?.error || 'Error consultando API')
         setResponseData(data)
         setTipoLluviasItems([])
+        setDpaTotals(null)
       }
     } catch (err) {
       setResponseData(null)
       setTipoLluviasItems([])
+      setDpaTotals(null)
       setError(err.message)
     } finally {
       setLoading(false)
@@ -483,14 +518,17 @@ function App() {
       if (!PUBLIC_API_KEY) throw new Error('Falta VITE_PUBLIC_API_KEY en el frontend.')
       const trimmedProvincia = provinciaId.trim()
       const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias, trimmedProvincia)
+      const dpaTotalsUrl = buildApiUrl(ENDPOINTS.lluviasTotalPorDpa, trimmedProvincia)
 
-      const response = await fetch(tipoLluviasUrl)
-      const data = await response.json()
-      if (!response.ok) throw new Error(data?.error || 'Error consultando eventos por tipo de lluvias')
+      const [responseTipos, responseDpa] = await Promise.all([fetch(tipoLluviasUrl), fetch(dpaTotalsUrl)])
+      const [dataTipos, dataDpa] = await Promise.all([responseTipos.json(), responseDpa.json()])
+      if (!responseTipos.ok) throw new Error(dataTipos?.error || 'Error consultando eventos por tipo de lluvias')
+      if (!responseDpa.ok) throw new Error(dataDpa?.error || 'Error consultando totales DPA')
 
       exportEventosLluviasPdf({
         items,
-        tipoLluviasItems: data?.items || [],
+        tipoLluviasItems: dataTipos?.items || [],
+        dpaTotals: (dataDpa?.items || [])[0] || null,
         provinciaId: provinciaId.trim() || null,
       })
     } catch (err) {
@@ -526,7 +564,9 @@ function App() {
           <button type="button"  onClick={onDescargarPrincipal} disabled={true}>
             {'Descargar PDF'}
           </button>
-          <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled={!responseData}>{showRawJson ? 'Ocultar JSON' : 'Ver JSON'}</button>
+          <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled="true">
+            {showRawJson ? 'Ver JSON' : 'Ver JSON'}
+          </button>
         </form>
 
         {DEBUG && <p className="request-url">GET {requestUrl}</p>}
@@ -553,6 +593,9 @@ function App() {
                   Descargar Excel - Seccion 3
                 </button>
                 <div className="table-wrap">
+                  <p>Desde {section3BaseRows[0]?.fecha_inicio || 'N/A'} a la fecha se registraron un total de {formatInt(totalEventosAdversos)} eventos
+                    adversos, distribuidos de la siguiente manera:
+                  </p>
                   <table>
                     <thead>
                       <tr>{section3Cols.map(([, label]) => <th key={label}>{label}</th>)}</tr>
@@ -593,7 +636,7 @@ function App() {
               </>
             )}
 
-            <div className="block-title">4. Eventos Peligrosos y Afectaciones - Resumen</div>
+            <div className="block-title">4.1 Eventos Peligrosos y Afectaciones - Resumen</div>
             <p className="muted">{section4.paragraph}</p>
             <div className="summary-grid">
               {section4.cards.map((card) => (
@@ -601,7 +644,7 @@ function App() {
               ))}
             </div>
 
-            <div className="block-title">5. Detalle de afectaciones por Provincia (de 1 de enero del anio 2026 a la fecha)</div>
+            <div className="block-title">4.2 Detalle de afectaciones por Provincia (de 1 de enero del anio 2026 a la fecha)</div>
             <p className="muted">{detalleAnalisis}</p>
             <button
               type="button"
