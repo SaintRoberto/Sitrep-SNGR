@@ -13,28 +13,6 @@ from ..utils.auth import require_api_key
 public_bp = Blueprint("public", __name__, url_prefix="/api/public")
 
 
-@public_bp.get("/health")
-@require_api_key
-def health():
-    """Health publico
-    ---
-    tags:
-      - Public
-    parameters:
-      - in: query
-        name: api_key
-        type: string
-        required: true
-        description: API key publica
-    responses:
-      200:
-        description: Servicio activo
-      401:
-        description: Missing api_key
-      403:
-        description: Invalid api_key
-    """
-    return jsonify({"status": "ok", "service": "public-backend"}), 200
 
 
 @public_bp.get("/test-conexion")
@@ -93,6 +71,11 @@ def eventos_por_lluvias():
         type: integer
         required: false
         description: ID de provincia (ej. 1, 2, 3)
+      - in: query
+        name: api_key
+        type: string
+        required: true
+        description: Clave de API para autenticación
     responses:
       200:
         description: Lista de eventos
@@ -189,6 +172,11 @@ def eventos_por_tipo_lluvias():
         type: integer
         required: false
         description: ID de provincia (ej. 1, 2, 3)
+      - in: query
+        name: api_key
+        type: string
+        required: true
+        description: Clave de API para autenticación
     responses:
       200:
         description: Lista de eventos
@@ -206,3 +194,129 @@ def eventos_por_tipo_lluvias():
         return jsonify({"total": len(data), "items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
+
+
+@public_bp.get("/asistencia-humanitaria-por-lluvias")
+@require_api_key
+def asistencia_humanitaria_por_lluvias():
+    """Lista asistencia humanitaria por lluvias, opcionalmente filtrados por ProvinciaID
+    ---
+    tags:
+      - Asistencia Humanitaria
+    parameters:
+      - in: query
+        name: ProvinciaID
+        type: integer
+        required: false
+        description: ID de provincia (ej. 1, 2, 3)
+      - in: query
+        name: api_key
+        type: string
+        required: true
+        description: Clave de API para autenticación
+    responses:
+      200:
+        description: Lista de eventos
+      400:
+        description: Parametro ProvinciaID invalido
+      500:
+        description: Error en base de datos
+    """
+    provincia_id, error_response, status_code = _parse_provincia_id_optional()
+    if error_response is not None:
+        return error_response, status_code
+
+    try:
+        data = get_asistencia_humanitaria_por_lluvias(provincia_id)
+        return jsonify({"total": len(data), "items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": "Database query failed", "details": error.details}), 500
+
+
+@public_bp.get("/eventos-por-lluvias-total-por-dpa")
+@require_api_key
+def eventos_por_lluvias_total_por_dpa():
+    """Lista total eventos por lluvias por DPA
+    ---
+    tags:
+      - Eventos
+    parameters:
+      - in: query
+        name: api_key
+        type: string
+        required: true
+        description: Clave de API para autenticación
+    responses:
+      200:
+        description: Lista de eventos por DPA
+      500:
+        description: Error en base de datos
+    """
+    try:
+        data = get_eventos_por_lluvias_lluvias_total_por_dpa()
+        return jsonify({"total": len(data), "items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": "Database query failed", "details": error.details}), 500
+
+@public_bp.get("/asistencia-humanitaria-por-sndgird-por-lluvias")
+@require_api_key
+def asistencia_humanitaria_por_sndgird_por_lluvias():
+    """Lista asistencia humanitaria por SNDGIRD por lluvias, opcionalmente filtrados por ProvinciaID
+    ---
+    tags:
+      - Asistencia Humanitaria
+    parameters:
+      - in: query
+        name: ProvinciaID
+        type: integer
+        required: false
+        description: ID de provincia (ej. 1, 2, 3)
+      - in: query
+        name: api_key
+        type: string
+        required: true
+        description: Clave de API para autenticación
+    responses:
+      200:
+        description: Lista de eventos
+      400:
+        description: Parametro ProvinciaID invalido
+      500:
+        description: Error en base de datos
+    """
+    provincia_id, error_response, status_code = _parse_provincia_id_optional()
+    if error_response is not None:
+        return error_response, status_code
+
+    try:
+        data = get_asistencia_humanitaria_por_lluvias(provincia_id)
+        return jsonify({"total": len(data), "items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": "Database query failed", "details": error.details}), 500
+
+
+@public_bp.get("/eventos-por-lluvias-km-vias-por-categoria")
+@require_api_key
+def eventos_por_lluvias_km_vias_por_categoria():
+  """Lista total eventos por lluvias por DPA
+  ---
+  tags:
+    - Eventos
+  parameters:
+    - in: query
+      name: api_key
+      type: string
+      required: true
+      description: Clave de API para autenticación
+  responses:
+    200:
+      description: Lista de eventos por DPA
+    500:
+      description: Error en base de datos
+  """
+  try:
+      data = get_eventos_por_lluvias_km_vias_por_categoria()
+      return jsonify({"total": len(data), "items": data}), 200
+  except AfectacionesServiceError as error:
+      return jsonify({"error": "Database query failed", "details": error.details}), 500
+

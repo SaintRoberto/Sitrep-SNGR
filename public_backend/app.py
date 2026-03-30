@@ -20,7 +20,7 @@ swagger_template = {
     "swagger": "2.0",
     "info": {
         "title": "Public API",
-        "description": "Documentacion de endpoints con JWT",
+        "description": "Documentacion de endpoints publicos con API key",
         "version": "1.0.0",
     },
     "securityDefinitions": {
@@ -31,11 +31,9 @@ swagger_template = {
             "description": "Escribe: Bearer <tu_jwt_token>",
         }
     },
-    "security": [{"Bearer": []}],
 }
 
 WHITELIST_PATHS = [
-    "/api/health",
     "/api/public",
 ]
 
@@ -69,19 +67,6 @@ def create_app() -> Flask:
     register_auth_hook(app)
 
     Swagger(app, template=swagger_template)
-
-    @app.get("/api/health")
-    def health_check():
-        """Health check
-        ---
-        tags:
-          - Health
-        responses:
-          200:
-            description: API funcionando correctamente
-        """
-        return jsonify({"estado": "OK", "mensaje": "API funcionando correctamente"})
-
     return app
 
 
@@ -173,3 +158,4 @@ app = create_app()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
