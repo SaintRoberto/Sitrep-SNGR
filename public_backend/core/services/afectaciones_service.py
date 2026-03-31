@@ -112,7 +112,27 @@ def get_eventos_por_lluvias_lluvias_total_por_dpa():
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
 
 
-def get_eventos_por_lluvias_km_vias_por_categoria():
+def get_alojamientos_temporales_abiertos_por_lluvias():
+    query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-AlojamientosTemporalesAbiertosPorLluvias 2026+`"
+    params = []
+    try:
+        return _run_query(query, params)
+    except pymysql.MySQLError as db_error:
+        details = {"mysql_error": str(db_error)}
+        raise AfectacionesServiceError("Database query failed", details=details) from db_error
+
+
+def get_alojamientos_temporales_cerrados_por_lluvias():
+    query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-AlojamientosTemporalesCerradosPorLluvias 2026+`"
+    params = []
+    try:
+        return _run_query(query, params)
+    except pymysql.MySQLError as db_error:
+        details = {"mysql_error": str(db_error)}
+        raise AfectacionesServiceError("Database query failed", details=details) from db_error
+
+
+def get_eventos_por_lluvias_km_vias_por_categoria(provincia_id=None):
     query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-EventosPorLluviasKmViasPorCategoria 2026+`"
     params = []
     try:
@@ -120,3 +140,8 @@ def get_eventos_por_lluvias_km_vias_por_categoria():
     except pymysql.MySQLError as db_error:
         details = {"mysql_error": str(db_error)}
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
+
+
+
+
+

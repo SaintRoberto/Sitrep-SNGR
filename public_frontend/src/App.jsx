@@ -17,6 +17,8 @@ const ENDPOINTS = {
   tipoLluvias: '/api/public/eventos-por-tipo-lluvias',
   lluviasTotalPorDpa: '/api/public/eventos-por-lluvias-total-por-dpa',
   asistenciaHumanitariaLluvias: '/api/public/asistencia-humanitaria-por-sndgird-por-lluvias',
+  alojamientosTemporalesLluvias: '/api/public/alojamientos-temporales-abiertos-por-lluvias',
+  alojamientosTemporalesCerradosLluvias: '/api/public/alojamientos-temporales-cerrados-por-lluvias'
 }
 
 const TIPO_LABELS = {
@@ -236,7 +238,7 @@ function buildPuntosImportantes(items, analysisRows, tipo, dpaTotals = null) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
     .map(([provincia]) => provincia)
-  
+
   return {
     line1: `Desde el 1 de enero de 2026 hasta la presente fecha se han registrado ${formatInt(totalEventos)} eventos por ${TIPO_LABELS[tipo] || 'evento'} afectando a ${formatInt(provincias)} provincias, ${formatInt(cantones)} cantones y ${formatInt(parroquias)} parroquias. Los eventos mas recurrentes corresponden a: ${typesText} entre los principales.`,
     line2: topProvincias.length
@@ -404,6 +406,25 @@ function formatCardValue(key, value) {
   return formatInt(value)
 }
 
+function formatDateYmd(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return raw
+
+  const y = parsed.getUTCFullYear()
+  const m = String(parsed.getUTCMonth() + 1).padStart(2, '0')
+  const d = String(parsed.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function formatTableCellValue(key, value) {
+  if (key === 'Apertura' || key === 'Cierre') return formatDateYmd(value)
+  return value
+}
+
 function App() {
   const [tipo, setTipo] = useState('lluvias')
   const [provinciaId, setProvinciaId] = useState('')
@@ -414,6 +435,8 @@ function App() {
   const [asistenciaItems, setAsistenciaItems] = useState([])
   const [dpaTotals, setDpaTotals] = useState(null)
   const [showRawJson, setShowRawJson] = useState(false)
+  const [alojamientosItems, setAlojamientosItems] = useState([])
+  const [alojamientosCerradosItems, setAlojamientosCerradosItems] = useState([])
 
   const buildApiUrl = (endpointPath, provinciaValue = '') => {
     const base = `${API_BASE_URL}${endpointPath}`
@@ -424,7 +447,6 @@ function App() {
     const query = params.toString()
     return query ? `${base}?${query}` : base
   }
-
   const requestUrl = useMemo(() => buildApiUrl(ENDPOINTS[tipo], provinciaId), [tipo, provinciaId])
 
   const items = responseData?.items ?? []
@@ -491,6 +513,54 @@ function App() {
     [section6Rows]
   )
   const shouldShowSection6 = useMemo(() => section6Rows.length > 0 && section6TotalGeneral > 0, [section6Rows.length, section6TotalGeneral])
+  const section5Rows = useMemo(() => {
+    return alojamientosItems.map((row, idx) => ({ __no__: idx + 1, ...row }))
+  }, [alojamientosItems])
+  const section5OrderedCols = useMemo(
+    () =>
+      buildDynamicCols(alojamientosItems, [
+        'Provincia',
+        'Canton',
+        'Parroquia',
+        'Tipo',
+        'Nombre',
+        'Apertura',
+        'Familias',
+        'Personas',
+      ]),
+    [alojamientosItems]
+  )
+  const section5AlojRowsWithTotals = useMemo(() => withTotalsRow(section5OrderedCols, section5Rows), [section5OrderedCols, section5Rows])
+  const shouldShowSection5 = useMemo(() => section5Rows.length > 0, [section5Rows.length])
+
+
+  const section5RowsCerrados = useMemo(() => {
+    return alojamientosCerradosItems.map((row, idx) => ({ __no__: idx + 1, ...row }))
+  }, [alojamientosCerradosItems])
+
+
+  const section5OrderedColsCerrados = useMemo(
+    () =>
+      buildDynamicCols(alojamientosCerradosItems, [
+        'Provincia',
+        'Canton',
+        'Parroquia',
+        'Tipo',
+        'Nombre',        
+        'Apertura',
+        'Cierre',
+      ]),
+    [alojamientosCerradosItems]
+  )
+
+  const section5AlojamientosCerradosRows = useMemo(() => withTotalsRow(section5OrderedColsCerrados, section5RowsCerrados), [section5OrderedColsCerrados, section5RowsCerrados])
+  const alojamientosAnalisis = useMemo(() => {
+    const anioActual = new Date().getFullYear()
+    const totalAbiertos = alojamientosItems.length
+    const totalCerrados = alojamientosCerradosItems.length
+    const totalActivados = totalAbiertos + totalCerrados
+    return `En lo que va del ${anioActual} por lluvias se han activado ${formatInt(totalActivados)}, de los cuales ${formatInt(totalAbiertos)} se encuentra abiertos y ${formatInt(totalCerrados)} se encuentran cerrados.`
+  }, [alojamientosItems, alojamientosCerradosItems])
 
   useEffect(() => {
     setResponseData(null)
@@ -514,29 +584,40 @@ function App() {
         const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias, trimmedProvincia)
         const dpaTotalsUrl = buildApiUrl(ENDPOINTS.lluviasTotalPorDpa, trimmedProvincia)
         const asistenciaUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluvias, trimmedProvincia)
+        const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias, trimmedProvincia)
+        const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias, trimmedProvincia)
 
-        const [responseMain, responseTipos, responseDpa, responseAsistencia] = await Promise.all([
+        const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAlojamientos, responseAlojamientosCerrados] = await Promise.all([
           fetch(requestUrl),
           fetch(tipoLluviasUrl),
           fetch(dpaTotalsUrl),
           fetch(asistenciaUrl),
+          fetch(alojamientosUrl),
+          fetch(alojamientosCerradosUrl),
+
         ])
-        const [dataMain, dataTipos, dataDpa, dataAsistencia] = await Promise.all([
+        const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAlojamientos, dataAlojamientosCerrados] = await Promise.all([
           responseMain.json(),
           responseTipos.json(),
           responseDpa.json(),
           responseAsistencia.json(),
+          responseAlojamientos.json(),
+          responseAlojamientosCerrados.json(),
         ])
 
         if (!responseMain.ok) throw new Error(dataMain?.error || 'Error consultando API')
         if (!responseTipos.ok) throw new Error(dataTipos?.error || 'Error consultando eventos por tipo de lluvias')
         if (!responseDpa.ok) throw new Error(dataDpa?.error || 'Error consultando totales DPA')
         if (!responseAsistencia.ok) throw new Error(dataAsistencia?.error || 'Error consultando asistencia humanitaria')
+        if (!responseAlojamientos.ok) throw new Error(dataAlojamientos?.error || 'Error consultando alojamientos temporales')
+        if (!responseAlojamientosCerrados.ok) throw new Error(dataAlojamientosCerrados?.error || 'Error consultando alojamientos temporales cerrados')
 
         setResponseData(dataMain)
         setTipoLluviasItems(dataTipos?.items || [])
         setAsistenciaItems(dataAsistencia?.items || [])
         setDpaTotals((dataDpa?.items || [])[0] || null)
+        setAlojamientosItems(dataAlojamientos?.items || [])
+        setAlojamientosCerradosItems(dataAlojamientosCerrados?.items || []) // Limpiar alojamientos cerrados al consultar eventos por lluvias
       } else {
         const response = await fetch(requestUrl)
         const data = await response.json()
@@ -545,12 +626,16 @@ function App() {
         setTipoLluviasItems([])
         setAsistenciaItems([])
         setDpaTotals(null)
+        setAlojamientosItems([])
+        setAlojamientosCerradosItems([])
       }
     } catch (err) {
       setResponseData(null)
       setTipoLluviasItems([])
       setAsistenciaItems([])
       setDpaTotals(null)
+      setAlojamientosItems([])
+      setAlojamientosCerradosItems([])
       setError(err.message)
     } finally {
       setLoading(false)
@@ -628,7 +713,7 @@ function App() {
           </label>
 
           <button type="submit" disabled={loading || !API_BASE_URL}>{loading ? 'Consultando...' : 'Consultar'}</button>
-          <button type="button"  onClick={onDescargarPrincipal} disabled={loading || !items.length}>
+          <button type="button" onClick={onDescargarPrincipal} disabled={loading || !items.length}>
             {'Descargar PDF'}
           </button>
           <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled={!responseData}>
@@ -706,7 +791,7 @@ function App() {
               </>
             )}
 
-            <div className="block-title">4. Eventos Peligrosos y Afectaciones - Resumen</div>
+            <div className="block-title">4.1 Eventos Peligrosos y Afectaciones - Resumen</div>
             <p className="muted">{section4.paragraph}</p>
             <div className="summary-grid">
               {section4.cards.map((card) => (
@@ -714,14 +799,14 @@ function App() {
               ))}
             </div>
 
-            <div className="block-title">5. Detalle de afectaciones por Provincia (de 1 de enero del anio 2026 a la fecha)</div>
+            <div className="block-title">4.2 Detalle de afectaciones por Provincia (de 1 de enero del anio 2026 a la fecha)</div>
             <p className="muted">{detalleAnalisis}</p>
             <button
               type="button"
               onClick={() => downloadExcelXml(`detalle_${tipo}.xml`, 'DetalleAfectaciones', currentDetailCols, section5RowsWithTotals)}
               disabled={!items.length}
             >
-              Descargar Excel - Seccion 5
+              Descargar Excel - Seccion 4.1
             </button>
             <div className="table-wrap">
               <table>
@@ -731,14 +816,68 @@ function App() {
                 <tbody>
                   {section5RowsWithTotals.map((row, idx) => (
                     <tr key={idx} className={row.__isTotal__ ? 'total-row' : ''}>
-                      {currentDetailCols.map(([key]) => 
-                      <td key={`${idx}-${key}`}>{row[key] ?? '0'}</td>)}
-                      
+                      {currentDetailCols.map(([key]) =>
+                        <td key={`${idx}-${key}`}>{row[key] ?? '0'}</td>)}
+
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+
+
+
+            <>
+              <div className="block-title">5.1 Alojamientos Temporales</div>
+              <p className="muted">{alojamientosAnalisis}</p>
+              <button
+                type="button"
+                onClick={() => downloadExcelXml('alojamientos_temporales_abiertos.xml', 'AlojamientosTemporales', section5OrderedCols, section5AlojRowsWithTotals)}
+                disabled={!shouldShowSection5}
+              >
+                Descargar Excel - Seccion 5.1
+              </button>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>{section5OrderedCols.map(([, label]) => <th key={`s5-${label}`}>{label}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {section5AlojRowsWithTotals.map((row, idx) => (
+                      <tr key={`s5-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
+                        {section5OrderedCols.map(([key]) => <td key={`s5-${idx}-${key}`}>{formatTableCellValue(key, row[key]) ?? '0'}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+
+             <>
+              <div className="block-title">5.2 Alojamientos Temporales Cerrados</div>
+              <button
+                type="button"
+                onClick={() => downloadExcelXml('alojamientos_temporales_cerrados.xml', 'AlojamientosTemporales', section5OrderedColsCerrados, section5AlojamientosCerradosRows)}
+                disabled={!shouldShowSection5}
+              >
+                Descargar Excel - Seccion 5.2
+              </button>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>{section5OrderedColsCerrados.map(([, label]) => <th key={`s5-${label}`}>{label}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {section5AlojamientosCerradosRows.map((row, idx) => (
+                      <tr key={`s5-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
+                        {section5OrderedColsCerrados.map(([key]) => <td key={`s5-${idx}-${key}`}>{formatTableCellValue(key, row[key]) ?? '0'}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+
 
             {tipo === 'lluvias' && shouldShowSection6 && (
               <>

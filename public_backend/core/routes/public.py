@@ -10,6 +10,8 @@ from ..services.afectaciones_service import (
     get_asistencia_humanitaria_por_lluvias,
     get_eventos_por_lluvias_lluvias_total_por_dpa,
     get_eventos_por_lluvias_km_vias_por_categoria,
+    get_alojamientos_temporales_abiertos_por_lluvias,
+    get_alojamientos_temporales_cerrados_por_lluvias,
 )
 from ..utils.auth import require_api_key
 
@@ -323,3 +325,52 @@ def eventos_por_lluvias_km_vias_por_categoria():
   except AfectacionesServiceError as error:
       return jsonify({"error": "Database query failed", "details": error.details}), 500
 
+@public_bp.get("/alojamientos-temporales-abiertos-por-lluvias")
+@require_api_key
+def alojamientos_temporales_abiertos_por_lluvias():
+    """Lista alojamientos temporales abiertos por lluvias
+    ---
+    tags:
+      - Alojamiento Temporal
+    parameters:
+      - in: query
+        name: api_key
+        type: string
+        required: true
+        description: Clave de API para autenticación
+    responses:
+      200:
+        description: Lista de alojamientos temporales abiertos por lluvias
+      500:
+        description: Error en base de datos
+    """
+    try:
+        data = get_alojamientos_temporales_abiertos_por_lluvias()
+        return jsonify({"items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": "Database query failed", "details": error.details}), 500
+
+@public_bp.get("/alojamientos-temporales-cerrados-por-lluvias")
+@require_api_key
+def alojamientos_temporales_cerrados_por_lluvias():
+    """Lista alojamientos temporales cerrados por lluvias
+    ---
+    tags:
+      - Alojamiento Temporal
+    parameters:
+      - in: query
+        name: api_key
+        type: string
+        required: true
+        description: Clave de API para autenticación
+    responses:
+      200:
+        description: Lista de alojamientos temporales cerrados por lluvias
+      500:
+        description: Error en base de datos
+    """
+    try:
+        data = get_alojamientos_temporales_cerrados_por_lluvias()
+        return jsonify({"items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": "Database query failed", "details": error.details}), 500
