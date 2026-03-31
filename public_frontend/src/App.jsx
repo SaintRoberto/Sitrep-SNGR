@@ -7,6 +7,7 @@ const API_LOCAL_URL = import.meta.env.VITE_API_LOCAL_URL || 'http://localhost:50
 const API_PROD_URL = import.meta.env.VITE_API_PROD_URL || ''
 const PUBLIC_API_KEY = import.meta.env.VITE_PUBLIC_API_KEY || ''
 const DEBUG = import.meta.env.DEBUG === 'true' || false
+const activacion = false
 
 const API_BASE_URL = API_ENV === 'prod' ? API_PROD_URL : API_LOCAL_URL
 
@@ -713,10 +714,10 @@ function App() {
           </label>
 
           <button type="submit" disabled={loading || !API_BASE_URL}>{loading ? 'Consultando...' : 'Consultar'}</button>
-          <button type="button" onClick={onDescargarPrincipal} disabled={loading || !items.length}>
+          <button type="button" onClick={onDescargarPrincipal} disabled>
             {'Descargar PDF'}
           </button>
-          <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled={!responseData}>
+          <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled>
             {showRawJson ? 'Ocultar JSON' : 'Ver JSON'}
           </button>
         </form>
@@ -879,7 +880,7 @@ function App() {
             </>
 
 
-            {tipo === 'lluvias' && shouldShowSection6 && (
+            {tipo === 'lluvias' && shouldShowSection6 && activacion === true && (
               <>
                 <div className="block-title">6. Asistencia Humanitaria</div>
                 <button
