@@ -9,7 +9,7 @@ from flasgger import Swagger
 from dotenv import load_dotenv
 
 _ENV_PATH = Path(__file__).resolve().parent / '.env'
-load_dotenv(dotenv_path=_ENV_PATH)
+load_dotenv(dotenv_path=_ENV_PATH, override=True)
 
 from core.config import Config
 from core.extensions import init_db
@@ -158,4 +158,5 @@ app = create_app()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
 

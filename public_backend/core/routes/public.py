@@ -13,6 +13,11 @@ from ..services.afectaciones_service import (
     get_alojamientos_temporales_abiertos_por_lluvias,
     get_alojamientos_temporales_cerrados_por_lluvias,
 )
+from ..services.consolidado_service import (
+    ConsolidadoServiceError, 
+    create_consolidado,
+    get_consolidado
+)
 from ..utils.auth import require_api_key
 
 public_bp = Blueprint("public", __name__, url_prefix="/api/public")
@@ -374,3 +379,77 @@ def alojamientos_temporales_cerrados_por_lluvias():
         return jsonify({"items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
+
+@public_bp.post("/consolidado/create")
+@require_api_key
+def crear_consolidado():
+    """Inserta un registro en public.consolidado (PostgreSQL)
+    ---
+    tags:
+      - Consolidado
+    parameters:
+      - in: query
+        name: api_key
+        type: string
+        required: true
+        description: Clave API publica
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          additionalProperties: true
+          description: Campos a insertar; las llaves deben coincidir con nombres de columnas en public.consolidado
+    responses:
+      201:
+        description: Registro insertado correctamente
+      400:
+        description: Payload invalido
+      500:
+        description: Error interno o de base de datos
+    """
+    payload = request.get_json(silent=True)
+    if payload is None:
+        return jsonify({"error": "JSON body is required"}), 400
+
+    try:
+        inserted_id, inserted_fields = create_consolidado(payload)
+        return jsonify({
+            "status": "ok",
+            "message": "Registro insertado",
+            "id": inserted_id,
+        }), 201
+    except ConsolidadoServiceError as error:
+        return jsonify({
+            "error": str(error),
+            "details": error.details,
+        }), error.status_code
+
+
+@public_bp.get("/consolidado/get-consolidado")
+@require_api_key
+def obtener_consolidado():
+    """Obtiene registros de public.consolidado (PostgreSQL)
+    ---
+    tags:
+      - Consolidado
+    parameters:
+      - in: query
+        name: api_key
+        type: string
+        required: true
+        description: Clave API publica
+    responses:
+      200:
+        description: Lista de registros en public.consolidado
+      500:
+        description: Error interno o de base de datos
+    """
+    try:
+        data = get_consolidado()
+        return jsonify({"items": data}), 200
+    except ConsolidadoServiceError as error:
+        return jsonify({
+            "error": str(error),
+            "details": error.details,
+        }), error.status_code

@@ -3,12 +3,22 @@ import os
 
 class Config:
     DEBUG = os.getenv("FLASK_DEBUG", "0") == "1"
-
+    
+# MySQL configuration
     MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
     MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
     MYSQL_DB = os.getenv("MYSQL_DB", "")
     MYSQL_USER = os.getenv("MYSQL_USER", "")
     MYSQL_PASS = os.getenv("MYSQL_PASS", "")
+
+# PostgreSQL configuration
+    DATABASE_URL = os.getenv("DATABASE_URL", "")
+    POSTGRES_HOST = os.getenv("POSTGRES_HOST", "")
+    POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+    POSTGRES_DB = os.getenv("POSTGRES_DB", "")
+    POSTGRES_USER = os.getenv("POSTGRES_USER", "")
+    POSTGRES_PASS = os.getenv("POSTGRES_PASS", "")
+    POSTGRES_SSLMODE = os.getenv("POSTGRES_SSLMODE", "")
 
     PUBLIC_API_KEYS = [
         key.strip()
