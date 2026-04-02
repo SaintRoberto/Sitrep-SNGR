@@ -1,8 +1,8 @@
 from datetime import date, datetime, time
 from decimal import Decimal
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import pymysql
+from pymysql.cursors import DictCursor
 
 from flask import current_app
 
@@ -91,58 +91,64 @@ PAYLOAD_COLUMNS = [
 
 
 def _get_connection():
-    database_url = (current_app.config.get("DATABASE_URL") or "").strip()
-    if database_url:
-        return psycopg2.connect(database_url)
-
-    host = (current_app.config.get("POSTGRES_HOST") or "").strip()
-    port = int(current_app.config.get("POSTGRES_PORT") or 5432)
-    dbname = (current_app.config.get("POSTGRES_DB") or "").strip()
-    user = (current_app.config.get("POSTGRES_USER") or "").strip()
-    password = (current_app.config.get("POSTGRES_PASS") or "").strip()
-    sslmode = (current_app.config.get("POSTGRES_SSLMODE") or "").strip()
+    host = (current_app.config.get("MYSQL_CONSOLIDADO_HOST") or current_app.config.get("MYSQL_HOST") or "").strip()
+    port = int(current_app.config.get("MYSQL_CONSOLIDADO_PORT") or current_app.config.get("MYSQL_PORT") or 3306)
+    database = (current_app.config.get("MYSQL_CONSOLIDADO_DB") or current_app.config.get("MYSQL_DB") or "").strip()
+    user = (current_app.config.get("MYSQL_CONSOLIDADO_USER") or current_app.config.get("MYSQL_USER") or "").strip()
+    password = (current_app.config.get("MYSQL_CONSOLIDADO_PASS") or current_app.config.get("MYSQL_PASS") or "").strip()
 
     missing = [
         key
         for key, value in {
-            "POSTGRES_HOST": host,
-            "POSTGRES_DB": dbname,
-            "POSTGRES_USER": user,
-            "POSTGRES_PASS": password,
+            "MYSQL_CONSOLIDADO_HOST": host,
+            "MYSQL_CONSOLIDADO_DB": database,
+            "MYSQL_CONSOLIDADO_USER": user,
+            "MYSQL_CONSOLIDADO_PASS": password,
         }.items()
         if not value
     ]
 
     if missing:
         raise ConsolidadoServiceError(
-            "PostgreSQL configuration is incomplete",
+            "MySQL configuration for consolidado is incomplete",
             details={
-                "config_error": "Missing PostgreSQL settings",
+                "config_error": "Missing MySQL settings",
                 "missing": missing,
                 "accepted": [
-                    "DATABASE_URL",
-                    "POSTGRES_HOST",
-                    "POSTGRES_PORT",
-                    "POSTGRES_DB",
-                    "POSTGRES_USER",
-                    "POSTGRES_PASS",
-                    "POSTGRES_SSLMODE",
+                    "MYSQL_CONSOLIDADO_HOST",
+                    "MYSQL_CONSOLIDADO_PORT",
+                    "MYSQL_CONSOLIDADO_DB",
+                    "MYSQL_CONSOLIDADO_USER",
+                    "MYSQL_CONSOLIDADO_PASS",
+                ],
+                "fallback": [
+                    "MYSQL_HOST",
+                    "MYSQL_PORT",
+                    "MYSQL_USER",
+                    "MYSQL_PASS",
                 ],
             },
             status_code=500,
         )
 
-    connect_kwargs = {
-        "host": host,
-        "port": port,
-        "dbname": dbname,
-        "user": user,
-        "password": password,
-    }
-    if sslmode:
-        connect_kwargs["sslmode"] = sslmode
-
-    return psycopg2.connect(**connect_kwargs)
+    try:
+        return pymysql.connect(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
+            charset="utf8mb4",
+            cursorclass=DictCursor,
+            autocommit=True,
+            connect_timeout=5,
+        )
+    except pymysql.MySQLError as db_error:
+        raise ConsolidadoServiceError(
+            "MySQL connection failed",
+            details={"mysql_error": str(db_error)},
+            status_code=500,
+        ) from db_error
 
 
 def create_consolidado(payload):
@@ -166,7 +172,7 @@ def create_consolidado(payload):
     values = [payload.get(column) for column in PAYLOAD_COLUMNS]
 
     query = """
-            INSERT INTO public.consolidado(
+            INSERT INTO consolidado(
                 provincia, canton, parroquia, sector, fechareporte, horareporte, tipo,
                 nombrerio, estado, fechadesbordamiento, antecedente, acciones,
                 responsableregistro, observaciones, codigormnacional, codigormnacional2,
@@ -188,23 +194,20 @@ def create_consolidado(payload):
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s
-            )
-            RETURNING id;
+            );
             """
 
     connection = _get_connection()
     try:
-        with connection:
-            with connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(query, values)
-                inserted_row = cursor.fetchone() or {}
-                return inserted_row.get("id"), PAYLOAD_COLUMNS
-    except psycopg2.Error as db_error:
+        with connection.cursor() as cursor:
+            cursor.execute(query, values)
+            return cursor.lastrowid, PAYLOAD_COLUMNS
+    except pymysql.MySQLError as db_error:
         raise ConsolidadoServiceError(
             "Database insert failed",
             details={
-                "postgres_error": str(db_error),
-                "query_preview_qmark": "INSERT INTO public.consolidado(provincia, canton, parroquia, sector, fechareporte, horareporte, tipo, nombrerio, estado, fechadesbordamiento, antecedente, acciones, responsableregistro, observaciones, codigormnacional, codigormnacional2, novedadgeoglows, fechanovedadgeoglows, latitudlongitud, personasfallecidas, personasheridas, familiasafectadas, personasafectadas, familiasdamnificadas, personasdamnificadas, personasfallecidas2, personasheridas2, familiasafectadasev2, personasafectadasev2, familiasdamnificadasev2, personasdamnificadasev2, personasfallecidas3, personasheridas3, familiasafectadasev3, personasafectadasev3, familiasdamnificadasev3, personasdamnificadasev3, personasfallecidas4, personasheridas4, familiasafectadasev4, personasafectadasev4, familiasdamnificadasev4, personasdamnificadasev4, anio, desbordado, totalpersonasfallecidas, totalpersonasheridas, totalfamiliasafectadas, totalpersonasafectadas, totalfamiliasdamnificadas, totalpersonasdamnificadas, latitud, longitud, causa, evento, mesdesbordado, provinciagm, ubicacion2) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                "mysql_error": str(db_error),
+                "query_preview_qmark": "INSERT INTO consolidado(provincia, canton, parroquia, sector, fechareporte, horareporte, tipo, nombrerio, estado, fechadesbordamiento, antecedente, acciones, responsableregistro, observaciones, codigormnacional, codigormnacional2, novedadgeoglows, fechanovedadgeoglows, latitudlongitud, personasfallecidas, personasheridas, familiasafectadas, personasafectadas, familiasdamnificadas, personasdamnificadas, personasfallecidas2, personasheridas2, familiasafectadasev2, personasafectadasev2, familiasdamnificadasev2, personasdamnificadasev2, personasfallecidas3, personasheridas3, familiasafectadasev3, personasafectadasev3, familiasdamnificadasev3, personasdamnificadasev3, personasfallecidas4, personasheridas4, familiasafectadasev4, personasafectadasev4, familiasdamnificadasev4, personasdamnificadasev4, anio, desbordado, totalpersonasfallecidas, totalpersonasheridas, totalfamiliasafectadas, totalpersonasafectadas, totalfamiliasdamnificadas, totalpersonasdamnificadas, latitud, longitud, causa, evento, mesdesbordado, provinciagm, ubicacion2) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
             },
             status_code=500,
         ) from db_error
@@ -212,20 +215,38 @@ def create_consolidado(payload):
         connection.close()
 
 
-def get_consolidado():
-    query = "SELECT * FROM public.consolidado ORDER BY id DESC LIMIT 100"
+def test_mysql_consolidado_connection():
+    query = "SELECT DATABASE() AS database_name, USER() AS db_user, NOW() AS server_time"
     connection = _get_connection()
     try:
-        with connection:
-            with connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(query)
-                rows = cursor.fetchall() or []
-                return _to_json_safe(rows)
-    except psycopg2.Error as db_error:
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+            row = cursor.fetchone() or {}
+            return _to_json_safe(row)
+    except pymysql.MySQLError as db_error:
         raise ConsolidadoServiceError(
-            "Database query failed",
-            details={"postgres_error": str(db_error)},
+            "MySQL connection test failed",
+            details={"mysql_error": str(db_error)},
             status_code=500,
         ) from db_error
     finally:
         connection.close()
+
+
+def get_consolidado():
+    query = "SELECT * FROM consolidado ORDER BY id DESC LIMIT 100"
+    connection = _get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+            rows = cursor.fetchall() or []
+            return _to_json_safe(rows)
+    except pymysql.MySQLError as db_error:
+        raise ConsolidadoServiceError(
+            "Database query failed",
+            details={"mysql_error": str(db_error)},
+            status_code=500,
+        ) from db_error
+    finally:
+        connection.close()
+

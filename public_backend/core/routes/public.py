@@ -14,9 +14,10 @@ from ..services.afectaciones_service import (
     get_alojamientos_temporales_cerrados_por_lluvias,
 )
 from ..services.consolidado_service import (
-    ConsolidadoServiceError, 
+    ConsolidadoServiceError,
     create_consolidado,
-    get_consolidado
+    get_consolidado,
+    test_mysql_consolidado_connection,
 )
 from ..utils.auth import require_api_key
 
@@ -383,7 +384,7 @@ def alojamientos_temporales_cerrados_por_lluvias():
 @public_bp.post("/consolidado/create")
 @require_api_key
 def crear_consolidado():
-    """Inserta un registro en public.consolidado (PostgreSQL)
+    """Inserta un registro en consolidado (MySQL)
     ---
     tags:
       - Consolidado
@@ -399,7 +400,7 @@ def crear_consolidado():
         schema:
           type: object
           additionalProperties: true
-          description: Campos a insertar; las llaves deben coincidir con nombres de columnas en public.consolidado
+          description: Campos a insertar; las llaves deben coincidir con nombres de columnas en consolidado
     responses:
       201:
         description: Registro insertado correctamente
@@ -429,7 +430,7 @@ def crear_consolidado():
 @public_bp.get("/consolidado/get-consolidado")
 @require_api_key
 def obtener_consolidado():
-    """Obtiene registros de public.consolidado (PostgreSQL)
+    """Obtiene registros de consolidado (MySQL)
     ---
     tags:
       - Consolidado
@@ -441,7 +442,7 @@ def obtener_consolidado():
         description: Clave API publica
     responses:
       200:
-        description: Lista de registros en public.consolidado
+        description: Lista de registros en consolidado
       500:
         description: Error interno o de base de datos
     """
@@ -453,3 +454,36 @@ def obtener_consolidado():
             "error": str(error),
             "details": error.details,
         }), error.status_code
+
+@public_bp.get("/consolidado/test-conexion")
+@require_api_key
+def test_conexion_mysql_consolidado():
+    """Verifica conexion MySQL para consolidado
+    ---
+    tags:
+      - Consolidado
+    parameters:
+      - in: query
+        name: api_key
+        type: string
+        required: true
+        description: Clave API publica
+    responses:
+      200:
+        description: Conexion MySQL (consolidado) exitosa
+      500:
+        description: Error de conexion
+    """
+    try:
+        data = test_mysql_consolidado_connection()
+        return jsonify({
+            "status": "ok",
+            "message": "Conexion MySQL (consolidado) exitosa",
+            "db_check": data,
+        }), 200
+    except ConsolidadoServiceError as error:
+        return jsonify({
+            "error": str(error),
+            "details": error.details,
+        }), error.status_code
+
