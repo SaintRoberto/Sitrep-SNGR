@@ -1,4 +1,4 @@
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 import pymysql
@@ -25,6 +25,13 @@ def _to_json_safe(value):
         return float(value)
     if isinstance(value, (datetime, date, time)):
         return value.isoformat()
+    if isinstance(value, timedelta):
+        total_seconds = int(value.total_seconds())
+        sign = "-" if total_seconds < 0 else ""
+        total_seconds = abs(total_seconds)
+        hours, rem = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(rem, 60)
+        return f"{sign}{hours:02}:{minutes:02}:{seconds:02}"
     return value
 
 
@@ -249,4 +256,6 @@ def get_consolidado():
         ) from db_error
     finally:
         connection.close()
+
+
 
