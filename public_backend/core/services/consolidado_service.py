@@ -259,3 +259,29 @@ def get_consolidado():
 
 
 
+
+def get_data_rios(fecha_inicio: str, fecha_fin: str):
+    query = """
+            SELECT *
+            FROM consolidado
+            WHERE fechareporte BETWEEN %s AND %s
+            ORDER BY fechareporte DESC, id DESC
+            """
+    connection = _get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(query, [fecha_inicio, fecha_fin])
+            rows = cursor.fetchall() or []
+            return _to_json_safe(rows)
+    except pymysql.MySQLError as db_error:
+        raise ConsolidadoServiceError(
+            "Database query failed",
+            details={
+                "mysql_error": str(db_error),
+                "fecha_inicio": fecha_inicio,
+                "fecha_fin": fecha_fin,
+            },
+            status_code=500,
+        ) from db_error
+    finally:
+        connection.close()

@@ -1,4 +1,5 @@
-from flask import Blueprint, jsonify, request
+from datetime import datetime
+from flask import Blueprint, current_app, jsonify, request
 
 from ..services.afectaciones_service import (
     AfectacionesServiceError,
@@ -17,6 +18,7 @@ from ..services.consolidado_service import (
     ConsolidadoServiceError,
     create_consolidado,
     get_consolidado,
+    get_data_rios,
     test_mysql_consolidado_connection,
 )
 from ..utils.auth import require_api_key
@@ -58,6 +60,17 @@ def test_conexion():
         }), 500
 
 
+
+def _validate_body_api_key(api_key: str):
+    api_key = (api_key or "").strip()
+    if not api_key:
+        return jsonify({"error": "Missing api_key"}), 401
+
+    valid_keys = current_app.config.get("PUBLIC_API_KEYS", [])
+    if api_key not in valid_keys:
+        return jsonify({"error": "Invalid api_key"}), 403
+
+    return None
 def _parse_provincia_id_optional():
     provincia_raw = request.args.get("ProvinciaID")
     if provincia_raw is None or provincia_raw == "":
@@ -487,3 +500,131 @@ def test_conexion_mysql_consolidado():
             "details": error.details,
         }), error.status_code
 
+
+#Rango de fechas en url query params: /consolidado/get_data_rios?fecha_inicio=2023-01-01&fecha_fin=2023-01-31
+@public_bp.get("/consolidado/get_data_rios")
+@require_api_key
+def obtener_data_rios():
+    """Obtiene datos de rios por rango de fechareporte
+    ---
+    tags:
+      - Consolidado
+    parameters:
+      - in: query
+        name: fecha_inicio
+        type: string
+        required: true
+        description: Fecha inicio en formato YYYY-MM-DD
+      - in: query
+        name: fecha_fin
+        type: string
+        required: true
+        description: Fecha fin en formato YYYY-MM-DD
+      - in: query
+        name: api_key
+        type: string
+        required: true
+        description: Clave API publica
+    responses:
+      200:
+        description: Lista de registros filtrados por rango de fecha
+      400:
+        description: Parametros de fecha invalidos
+      500:
+        description: Error interno o de base de datos
+    """
+    fecha_inicio = (request.args.get("fecha_inicio") or "").strip()
+    fecha_fin = (request.args.get("fecha_fin") or "").strip()
+
+    if not fecha_inicio or not fecha_fin:
+        return jsonify({"error": "fecha_inicio and fecha_fin are required"}), 400
+
+    try:
+        inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
+        fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "fecha_inicio and fecha_fin must use YYYY-MM-DD format"}), 400
+
+    if inicio_dt > fin_dt:
+        return jsonify({"error": "fecha_inicio cannot be greater than fecha_fin"}), 400
+
+    try:
+        data = get_data_rios(fecha_inicio, fecha_fin)
+        return jsonify({"total": len(data), "items": data}), 200
+    except ConsolidadoServiceError as error:
+        return jsonify({
+            "error": str(error),
+            "details": error.details,
+        }), error.status_code
+
+
+
+
+
+
+# Rango de fechas en JSON body: { "fecha_inicio": "2023-01-01", "fecha_fin": "2023-01-31" }
+@public_bp.post("/consolidado/get_data_rios_daterange")
+@require_api_key
+def obtener_data_rios_body():
+    """Obtiene datos de rios por rango de fechareporte usando JSON body
+    ---
+    tags:
+      - Consolidado
+    parameters:
+      - in: header
+        name: X-API-Key
+        type: string
+        required: true
+        description: Clave API publica
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - fecha_inicio
+            - fecha_fin
+          properties:
+            fecha_inicio:
+              type: string
+              description: Fecha inicio en formato YYYY-MM-DD
+            fecha_fin:
+              type: string
+              description: Fecha fin en formato YYYY-MM-DD
+    responses:
+      200:
+        description: Lista de registros filtrados por rango de fecha
+      400:
+        description: Parametros invalidos
+      401:
+        description: api_key faltante
+      403:
+        description: api_key invalida
+      500:
+        description: Error interno o de base de datos
+    """
+    payload = request.get_json(silent=True) or {}
+
+    fecha_inicio = (payload.get("fecha_inicio") or "").strip()
+    fecha_fin = (payload.get("fecha_fin") or "").strip()
+
+    if not fecha_inicio or not fecha_fin:
+        return jsonify({"error": "fecha_inicio and fecha_fin are required"}), 400
+
+    try:
+        inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
+        fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "fecha_inicio and fecha_fin must use YYYY-MM-DD format"}), 400
+
+    if inicio_dt > fin_dt:
+        return jsonify({"error": "fecha_inicio cannot be greater than fecha_fin"}), 400
+
+    try:
+        data = get_data_rios(fecha_inicio, fecha_fin)
+        return jsonify({"total": len(data), "items": data}), 200
+    except ConsolidadoServiceError as error:
+        return jsonify({
+            "error": str(error),
+            "details": error.details,
+        }), error.status_code
