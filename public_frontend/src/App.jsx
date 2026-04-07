@@ -115,8 +115,8 @@ function withTotalsRow(columns, rows) {
       return
     }
 
-    if (key === 'Provincia') {
-      totalRow[key] = 'Total General'
+    if (key === 'Provincia' || key === 'Provincias') {
+      totalRow[key] = 'Total general'
       return
     }
 
@@ -495,7 +495,7 @@ function App() {
   const section6ColsFiltered = useMemo(
     () =>
       section6Cols.filter(([key]) => {
-        if (key === '__no__' || key === 'Provincia' || key === 'Provincias') return true
+        if (key === '__no__' || key === 'Provincias' ) return true
 
         const values = section6Rows
           .map((row) => row?.[key])
@@ -880,7 +880,7 @@ function App() {
             </>
 
 
-            {tipo === 'lluvias' && shouldShowSection6 && activacion === true && (
+            {tipo === 'lluvias' && shouldShowSection6 && (
               <>
                 <div className="block-title">6. Asistencia Humanitaria</div>
                 <button
