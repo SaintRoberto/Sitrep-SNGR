@@ -735,7 +735,7 @@ function App() {
               <li>{puntosImportantes.line2}</li>
             </ul>
 
-            <div className="block-title">3. Eventos Adversos y Afectaciones por Provincia</div>
+            <div className="block-title pt-4">3. Eventos Adversos y Afectaciones por Provincia</div>
             {tipo === 'lluvias' ? (
               <>
                 <button
@@ -792,7 +792,7 @@ function App() {
               </>
             )}
 
-            <div className="block-title">4.1 Eventos Peligrosos y Afectaciones - Resumen</div>
+            <div className="block-title pt-4">4.1 Eventos Peligrosos y Afectaciones - Resumen</div>
             <p className="muted">{section4.paragraph}</p>
             <div className="summary-grid">
               {section4.cards.map((card) => (
@@ -800,7 +800,7 @@ function App() {
               ))}
             </div>
 
-            <div className="block-title">4.2 Detalle de afectaciones por Provincia (de 1 de enero del anio 2026 a la fecha)</div>
+            <div className="block-title pt-4">4.2 Detalle de afectaciones por Provincia (de 1 de enero del anio 2026 a la fecha)</div>
             <p className="muted">{detalleAnalisis}</p>
             <button
               type="button"
@@ -829,7 +829,7 @@ function App() {
 
 
             <>
-              <div className="block-title">5.1 Alojamientos Temporales</div>
+              <div className="block-title pt-4">5.1 Alojamientos Temporales</div>
               <p className="muted">{alojamientosAnalisis}</p>
               <button
                 type="button"
@@ -855,7 +855,7 @@ function App() {
             </>
 
              <>
-              <div className="block-title">5.2 Alojamientos Temporales Cerrados</div>
+              <div className="block-title pt-4">5.2 Alojamientos Temporales Cerrados</div>
               <button
                 type="button"
                 onClick={() => downloadExcelXml('alojamientos_temporales_cerrados.xml', 'AlojamientosTemporales', section5OrderedColsCerrados, section5AlojamientosCerradosRows)}
@@ -882,7 +882,7 @@ function App() {
 
             {tipo === 'lluvias' && shouldShowSection6 && (
               <>
-                <div className="block-title">6. Asistencia Humanitaria</div>
+                <div className="block-title pt-4">6. Asistencia Humanitaria</div>
                 <button
                   type="button"
                   onClick={() => downloadExcelXml('asistencia_humanitaria.xml', 'AsistenciaHumanitaria', section6ColsFiltered, section6RowsWithTotals)}
