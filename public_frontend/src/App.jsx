@@ -17,9 +17,10 @@ const ENDPOINTS = {
   incendios: '/api/public/eventos-por-incendios-forestales',
   tipoLluvias: '/api/public/eventos-por-tipo-lluvias',
   lluviasTotalPorDpa: '/api/public/eventos-por-lluvias-total-por-dpa',
-  asistenciaHumanitariaLluvias: '/api/public/asistencia-humanitaria-por-sndgird-por-lluvias',
+  asistenciaHumanitariaLluvias: '/api/public/asistencia-humanitaria-por-sngr-por-lluvias',
   alojamientosTemporalesLluvias: '/api/public/alojamientos-temporales-abiertos-por-lluvias',
-  alojamientosTemporalesCerradosLluvias: '/api/public/alojamientos-temporales-cerrados-por-lluvias'
+  alojamientosTemporalesCerradosLluvias: '/api/public/alojamientos-temporales-cerrados-por-lluvias',
+  asistenciaHumanitariaLluviasSNDGIRD: '/api/public/asistencia-humanitaria-por-sndgird-por-lluvias',
 }
 
 const TIPO_LABELS = {
@@ -438,6 +439,7 @@ function App() {
   const [showRawJson, setShowRawJson] = useState(false)
   const [alojamientosItems, setAlojamientosItems] = useState([])
   const [alojamientosCerradosItems, setAlojamientosCerradosItems] = useState([])
+  const [asistenciaSNDGIRDItems, setAsistenciaSNDGIRDItems] = useState([])
 
   const buildApiUrl = (endpointPath, provinciaValue = '') => {
     const base = `${API_BASE_URL}${endpointPath}`
@@ -563,6 +565,45 @@ function App() {
     return `En lo que va del ${anioActual} por lluvias se han activado ${formatInt(totalActivados)}, de los cuales ${formatInt(totalAbiertos)} se encuentra abiertos y ${formatInt(totalCerrados)} se encuentran cerrados.`
   }, [alojamientosItems, alojamientosCerradosItems])
 
+   const section6SNDGIRDCols = useMemo(
+    () =>
+      buildDynamicCols(asistenciaSNDGIRDItems, [
+        'Provincias',
+        'Provincia',
+        'Familias Beneficiadas',
+        'Personas Beneficiadas',
+        'Total Bienes',
+        'ProvinciaID',
+      ]),
+    [asistenciaSNDGIRDItems]
+  )
+  const section6SNDGIRDRows = useMemo(() => {
+    const sorted = [...asistenciaSNDGIRDItems].sort((a, b) => n(b?.['Total Bienes']) - n(a?.['Total Bienes']))
+    return sorted.map((row, idx) => ({ __no__: idx + 1, ...row }))
+  }, [asistenciaSNDGIRDItems])
+  const section6SNDGIRDColsFiltered = useMemo(
+    () =>
+      section6SNDGIRDCols.filter(([key]) => {
+        if (key === '__no__' || key === 'Provincias' ) return true
+
+        const values = section6SNDGIRDRows
+          .map((row) => row?.[key])
+          .filter((v) => v !== undefined && v !== null && String(v).trim() !== '')
+        const isNumeric = values.length > 0 && values.every((v) => Number.isFinite(Number(String(v).replace(',', '.'))))
+        if (!isNumeric) return true
+
+        const total = section6SNDGIRDRows.reduce((acc, row) => acc + n(row?.[key]), 0)
+        return total !== 0
+      }),
+    [section6SNDGIRDCols, section6SNDGIRDRows]
+  )
+  const section6SNDGIRDRowsWithTotals = useMemo(() => withTotalsRow(section6SNDGIRDColsFiltered, section6SNDGIRDRows), [section6SNDGIRDColsFiltered, section6SNDGIRDRows])
+  const section6SNDGIRDTotalGeneral = useMemo(
+    () => section6SNDGIRDRows.reduce((acc, row) => acc + n(row?.['Total Bienes']), 0),
+    [section6SNDGIRDRows]
+  )
+  const shouldShowSection6SNDGIRD = useMemo(() => section6SNDGIRDRows.length > 0 && section6SNDGIRDTotalGeneral > 0, [section6SNDGIRDRows.length, section6SNDGIRDTotalGeneral])
+
   useEffect(() => {
     setResponseData(null)
     setTipoLluviasItems([])
@@ -587,31 +628,35 @@ function App() {
         const asistenciaUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluvias, trimmedProvincia)
         const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias, trimmedProvincia)
         const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias, trimmedProvincia)
+        const asistenciaSNDGIRDUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluviasSNDGIRD, trimmedProvincia)
 
-        const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAlojamientos, responseAlojamientosCerrados] = await Promise.all([
+        const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAlojamientos, responseAlojamientosCerrados, responseAsistenciaSNDGIRD] = await Promise.all([
           fetch(requestUrl),
           fetch(tipoLluviasUrl),
           fetch(dpaTotalsUrl),
           fetch(asistenciaUrl),
           fetch(alojamientosUrl),
           fetch(alojamientosCerradosUrl),
+          fetch(asistenciaSNDGIRDUrl),
 
         ])
-        const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAlojamientos, dataAlojamientosCerrados] = await Promise.all([
+        const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAlojamientos, dataAlojamientosCerrados, dataAsistenciaSNDGIRD] = await Promise.all([
           responseMain.json(),
           responseTipos.json(),
           responseDpa.json(),
           responseAsistencia.json(),
           responseAlojamientos.json(),
           responseAlojamientosCerrados.json(),
+          responseAsistenciaSNDGIRD.json(),
         ])
 
         if (!responseMain.ok) throw new Error(dataMain?.error || 'Error consultando API')
         if (!responseTipos.ok) throw new Error(dataTipos?.error || 'Error consultando eventos por tipo de lluvias')
         if (!responseDpa.ok) throw new Error(dataDpa?.error || 'Error consultando totales DPA')
-        if (!responseAsistencia.ok) throw new Error(dataAsistencia?.error || 'Error consultando asistencia humanitaria')
+        if (!responseAsistencia.ok) throw new Error(dataAsistencia?.error || 'Error consultando asistencia humanitaria SNGR')
         if (!responseAlojamientos.ok) throw new Error(dataAlojamientos?.error || 'Error consultando alojamientos temporales')
         if (!responseAlojamientosCerrados.ok) throw new Error(dataAlojamientosCerrados?.error || 'Error consultando alojamientos temporales cerrados')
+        if (!responseAsistenciaSNDGIRD.ok) throw new Error(dataAsistenciaSNDGIRD?.error || 'Error consultando asistencia humanitaria SNDGIRD')
 
         setResponseData(dataMain)
         setTipoLluviasItems(dataTipos?.items || [])
@@ -619,6 +664,7 @@ function App() {
         setDpaTotals((dataDpa?.items || [])[0] || null)
         setAlojamientosItems(dataAlojamientos?.items || [])
         setAlojamientosCerradosItems(dataAlojamientosCerrados?.items || []) // Limpiar alojamientos cerrados al consultar eventos por lluvias
+        setAsistenciaSNDGIRDItems(dataAsistenciaSNDGIRD?.items || [])
       } else {
         const response = await fetch(requestUrl)
         const data = await response.json()
@@ -629,6 +675,7 @@ function App() {
         setDpaTotals(null)
         setAlojamientosItems([])
         setAlojamientosCerradosItems([])
+        setAsistenciaSNDGIRDItems([])
       }
     } catch (err) {
       setResponseData(null)
@@ -637,6 +684,7 @@ function App() {
       setDpaTotals(null)
       setAlojamientosItems([])
       setAlojamientosCerradosItems([])
+      setAsistenciaSNDGIRDItems([])
       setError(err.message)
     } finally {
       setLoading(false)
@@ -662,20 +710,33 @@ function App() {
       const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias, trimmedProvincia)
       const dpaTotalsUrl = buildApiUrl(ENDPOINTS.lluviasTotalPorDpa, trimmedProvincia)
       const asistenciaUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluvias, trimmedProvincia)
+      const asistenciaSNDGIRDUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluviasSNDGIRD, trimmedProvincia)
+      const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias, trimmedProvincia)
+      const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias, trimmedProvincia)  
 
-      const [responseTipos, responseDpa, responseAsistencia] = await Promise.all([
+      const [responseTipos, responseDpa, responseAsistencia, responseAsistenciaSNDGIRD, responseAlojamientos, responseAlojamientosCerrados] = await Promise.all([
         fetch(tipoLluviasUrl),
         fetch(dpaTotalsUrl),
         fetch(asistenciaUrl),
+        fetch(asistenciaSNDGIRDUrl),
+        fetch(alojamientosUrl),
+        fetch(alojamientosCerradosUrl)
       ])
-      const [dataTipos, dataDpa, dataAsistencia] = await Promise.all([
+      const [dataTipos, dataDpa, dataAsistencia, dataAsistenciaSNDGIRD, dataAlojamientos, dataAlojamientosCerrados] = await Promise.all([
         responseTipos.json(),
         responseDpa.json(),
         responseAsistencia.json(),
+        responseAsistenciaSNDGIRD.json(),
+        responseAlojamientos.json(),
+        responseAlojamientosCerrados.json(),        
+
       ])
       if (!responseTipos.ok) throw new Error(dataTipos?.error || 'Error consultando eventos por tipo de lluvias')
       if (!responseDpa.ok) throw new Error(dataDpa?.error || 'Error consultando totales DPA')
       if (!responseAsistencia.ok) throw new Error(dataAsistencia?.error || 'Error consultando asistencia humanitaria')
+      if (!responseAsistenciaSNDGIRD.ok) throw new Error(dataAsistenciaSNDGIRD?.error || 'Error consultando asistencia humanitaria SNGR')
+      if (!responseAlojamientos.ok) throw new Error(dataAlojamientos?.error || 'Error consultando alojamientos temporales')
+      if (!responseAlojamientosCerrados.ok) throw new Error(dataAlojamientosCerrados?.error || 'Error consultando alojamientos temporales cerrados')
 
       exportEventosLluviasPdf({
         items,
@@ -882,13 +943,13 @@ function App() {
 
             {tipo === 'lluvias' && shouldShowSection6 && (
               <>
-                <div className="block-title pt-4">6. Asistencia Humanitaria</div>
+                <div className="block-title pt-4">6.1 Asistencia Humanitaria SNGR</div>
                 <button
                   type="button"
                   onClick={() => downloadExcelXml('asistencia_humanitaria.xml', 'AsistenciaHumanitaria', section6ColsFiltered, section6RowsWithTotals)}
                   disabled={!shouldShowSection6}
                 >
-                  Descargar Excel - Seccion 6
+                  Descargar Excel - Seccion 6.1
                 </button>
                 <div className="table-wrap">
                   <table>
@@ -905,7 +966,33 @@ function App() {
                   </table>
                 </div>
               </>
+              
             )}
+
+              <>
+                <div className="block-title pt-4">6.2 Asistencia Humanitaria SNDGIRD</div>
+                <button
+                  type="button"
+                  onClick={() => downloadExcelXml('asistencia_humanitaria.xml', 'AsistenciaHumanitaria', section6SNDGIRDColsFiltered, section6SNDGIRDRowsWithTotals)}
+                  disabled={!shouldShowSection6SNDGIRD}
+                >
+                  Descargar Excel - Seccion 6.2
+                </button>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>{section6SNDGIRDColsFiltered.map(([, label]) => <th key={`s6-${label}`}>{label}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {section6SNDGIRDRowsWithTotals.map((row, idx) => (
+                        <tr key={`s6-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
+                          {section6SNDGIRDColsFiltered.map(([key]) => <td key={`s6-${idx}-${key}`}>{row[key] ?? '0'}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
           </section>
         )}
 
