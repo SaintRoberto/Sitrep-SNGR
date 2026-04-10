@@ -21,6 +21,7 @@ const ENDPOINTS = {
   alojamientosTemporalesLluvias: '/api/public/alojamientos-temporales-abiertos-por-lluvias',
   alojamientosTemporalesCerradosLluvias: '/api/public/alojamientos-temporales-cerrados-por-lluvias',
   asistenciaHumanitariaLluviasSNDGIRD: '/api/public/asistencia-humanitaria-por-sndgird-por-lluvias',
+  personasFallecidasLluvias: '/api/public/personas-fallecidas-por-lluvias',
 }
 
 const TIPO_LABELS = {
@@ -440,6 +441,7 @@ function App() {
   const [alojamientosItems, setAlojamientosItems] = useState([])
   const [alojamientosCerradosItems, setAlojamientosCerradosItems] = useState([])
   const [asistenciaSNDGIRDItems, setAsistenciaSNDGIRDItems] = useState([])
+  const [personasFalleciasItems, setpersonasFalleciasItems] = useState([])
 
   const buildApiUrl = (endpointPath, provinciaValue = '') => {
     const base = `${API_BASE_URL}${endpointPath}`
@@ -565,6 +567,59 @@ function App() {
     return `En lo que va del ${anioActual} por lluvias se han activado ${formatInt(totalActivados)}, de los cuales ${formatInt(totalAbiertos)} se encuentra abiertos y ${formatInt(totalCerrados)} se encuentran cerrados.`
   }, [alojamientosItems, alojamientosCerradosItems])
 
+
+  const sectionFallecidosRows = useMemo(() => {
+    return personasFalleciasItems.map((row, idx) => ({ __no__: idx + 1, ...row }))
+  }, [personasFalleciasItems])
+  
+  const sectionFallecidosOrderedCols = useMemo(
+    () =>
+      buildDynamicCols(personasFalleciasItems, [
+        'Provincia',
+        'Canton',
+        'Parroquia',
+        'Tipo',
+        'Nombre',
+        'Apertura',
+        'Familias',
+        'Personas',
+      ]),
+    [personasFalleciasItems]
+  )
+  const sectionFallecidosRowsWithTotals = useMemo(() => withTotalsRow(sectionFallecidosOrderedCols, sectionFallecidosRows), [sectionFallecidosOrderedCols, sectionFallecidosRows])
+  const shouldShowSectionFallecidos = useMemo(() => sectionFallecidosRows.length > 0, [sectionFallecidosRows.length])
+
+
+  const sectionFallecidosRowsCerrados = useMemo(() => {
+    return alojamientosCerradosItems.map((row, idx) => ({ __no__: idx + 1, ...row }))
+  }, [alojamientosCerradosItems])
+
+
+  const sectionFallecidosOrderedColsCerrados = useMemo(
+    () =>
+      buildDynamicCols(alojamientosCerradosItems, [
+        'Provincia',
+        'Canton',
+        'Parroquia',
+        'Tipo',
+        'Nombre',        
+        'Apertura',
+        'Cierre',
+      ]),
+    [alojamientosCerradosItems]
+  )
+
+  const sectionFallecidosAlojamientosCerradosRows = useMemo(() => withTotalsRow(sectionFallecidosOrderedColsCerrados, sectionFallecidosRowsCerrados), [sectionFallecidosOrderedColsCerrados, sectionFallecidosRowsCerrados])
+  const personasFalleciasAnalisis = useMemo(() => {
+    const anioActual = new Date().getFullYear()
+    const totalAbiertos = alojamientosItems.length
+    const totalCerrados = alojamientosCerradosItems.length
+    const totalActivados = totalAbiertos + totalCerrados
+    return `En lo que va del ${anioActual} por lluvias se han activado ${formatInt(totalActivados)}, de los cuales ${formatInt(totalAbiertos)} se encuentra abiertos y ${formatInt(totalCerrados)} se encuentran cerrados.`
+  }, [alojamientosItems, alojamientosCerradosItems])
+
+
+
    const section6SNDGIRDCols = useMemo(
     () =>
       buildDynamicCols(asistenciaSNDGIRDItems, [
@@ -629,8 +684,9 @@ function App() {
         const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias, trimmedProvincia)
         const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias, trimmedProvincia)
         const asistenciaSNDGIRDUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluviasSNDGIRD, trimmedProvincia)
+        const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias, trimmedProvincia)  
 
-        const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAlojamientos, responseAlojamientosCerrados, responseAsistenciaSNDGIRD] = await Promise.all([
+        const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAlojamientos, responseAlojamientosCerrados, responseAsistenciaSNDGIRD, responsePersonasFallecidas  ] = await Promise.all([ 
           fetch(requestUrl),
           fetch(tipoLluviasUrl),
           fetch(dpaTotalsUrl),
@@ -638,9 +694,10 @@ function App() {
           fetch(alojamientosUrl),
           fetch(alojamientosCerradosUrl),
           fetch(asistenciaSNDGIRDUrl),
+          fetch(personasFallecidasUrl)
 
         ])
-        const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAlojamientos, dataAlojamientosCerrados, dataAsistenciaSNDGIRD] = await Promise.all([
+        const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAlojamientos, dataAlojamientosCerrados, dataAsistenciaSNDGIRD, dataPersonasFallecidas] = await Promise.all([
           responseMain.json(),
           responseTipos.json(),
           responseDpa.json(),
@@ -648,6 +705,7 @@ function App() {
           responseAlojamientos.json(),
           responseAlojamientosCerrados.json(),
           responseAsistenciaSNDGIRD.json(),
+          responsePersonasFallecidas.json()
         ])
 
         if (!responseMain.ok) throw new Error(dataMain?.error || 'Error consultando API')
@@ -657,6 +715,7 @@ function App() {
         if (!responseAlojamientos.ok) throw new Error(dataAlojamientos?.error || 'Error consultando alojamientos temporales')
         if (!responseAlojamientosCerrados.ok) throw new Error(dataAlojamientosCerrados?.error || 'Error consultando alojamientos temporales cerrados')
         if (!responseAsistenciaSNDGIRD.ok) throw new Error(dataAsistenciaSNDGIRD?.error || 'Error consultando asistencia humanitaria SNDGIRD')
+        if (!responsePersonasFallecidas.ok) throw new Error(dataPersonasFallecidas?.error || 'Error consultando personas fallecidas por lluvias')
 
         setResponseData(dataMain)
         setTipoLluviasItems(dataTipos?.items || [])
@@ -665,6 +724,7 @@ function App() {
         setAlojamientosItems(dataAlojamientos?.items || [])
         setAlojamientosCerradosItems(dataAlojamientosCerrados?.items || []) // Limpiar alojamientos cerrados al consultar eventos por lluvias
         setAsistenciaSNDGIRDItems(dataAsistenciaSNDGIRD?.items || [])
+        setpersonasFalleciasItems(dataPersonasFallecidas?.items || []) // Limpiar personas fallecidas al consultar eventos por lluvias
       } else {
         const response = await fetch(requestUrl)
         const data = await response.json()
@@ -676,6 +736,7 @@ function App() {
         setAlojamientosItems([])
         setAlojamientosCerradosItems([])
         setAsistenciaSNDGIRDItems([])
+        setpersonasFalleciasItems([])
       }
     } catch (err) {
       setResponseData(null)
@@ -685,6 +746,7 @@ function App() {
       setAlojamientosItems([])
       setAlojamientosCerradosItems([])
       setAsistenciaSNDGIRDItems([])
+      setpersonasFalleciasItems([])
       setError(err.message)
     } finally {
       setLoading(false)
@@ -713,23 +775,25 @@ function App() {
       const asistenciaSNDGIRDUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluviasSNDGIRD, trimmedProvincia)
       const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias, trimmedProvincia)
       const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias, trimmedProvincia)  
+      const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias, trimmedProvincia)
 
-      const [responseTipos, responseDpa, responseAsistencia, responseAsistenciaSNDGIRD, responseAlojamientos, responseAlojamientosCerrados] = await Promise.all([
+      const [responseTipos, responseDpa, responseAsistencia, responseAsistenciaSNDGIRD, responseAlojamientos, responseAlojamientosCerrados, responsePersonasFallecidas] = await Promise.all([
         fetch(tipoLluviasUrl),
         fetch(dpaTotalsUrl),
         fetch(asistenciaUrl),
         fetch(asistenciaSNDGIRDUrl),
         fetch(alojamientosUrl),
-        fetch(alojamientosCerradosUrl)
+        fetch(alojamientosCerradosUrl),
+        fetch(personasFallecidasUrl)
       ])
-      const [dataTipos, dataDpa, dataAsistencia, dataAsistenciaSNDGIRD, dataAlojamientos, dataAlojamientosCerrados] = await Promise.all([
+      const [dataTipos, dataDpa, dataAsistencia, dataAsistenciaSNDGIRD, dataAlojamientos, dataAlojamientosCerrados, dataPersonasFallecidas] = await Promise.all([
         responseTipos.json(),
         responseDpa.json(),
         responseAsistencia.json(),
         responseAsistenciaSNDGIRD.json(),
         responseAlojamientos.json(),
-        responseAlojamientosCerrados.json(),        
-
+        responseAlojamientosCerrados.json(),
+        responsePersonasFallecidas.json()
       ])
       if (!responseTipos.ok) throw new Error(dataTipos?.error || 'Error consultando eventos por tipo de lluvias')
       if (!responseDpa.ok) throw new Error(dataDpa?.error || 'Error consultando totales DPA')
@@ -737,6 +801,7 @@ function App() {
       if (!responseAsistenciaSNDGIRD.ok) throw new Error(dataAsistenciaSNDGIRD?.error || 'Error consultando asistencia humanitaria SNGR')
       if (!responseAlojamientos.ok) throw new Error(dataAlojamientos?.error || 'Error consultando alojamientos temporales')
       if (!responseAlojamientosCerrados.ok) throw new Error(dataAlojamientosCerrados?.error || 'Error consultando alojamientos temporales cerrados')
+      if (!responsePersonasFallecidas.ok) throw new Error(dataPersonasFallecidas?.error || 'Error consultando personas fallecidas por lluvias')
 
       exportEventosLluviasPdf({
         items,
@@ -744,6 +809,7 @@ function App() {
         asistenciaItems: dataAsistencia?.items || [],
         dpaTotals: (dataDpa?.items || [])[0] || null,
         provinciaId: provinciaId.trim() || null,
+        personasFallecidasItems: dataPersonasFallecidas?.items || []
       })
     } catch (err) {
       setError(err.message)
@@ -887,6 +953,28 @@ function App() {
               </table>
             </div>
 
+            <>
+              <div className="block-title pt-4">4.5 Personas Fallecidas</div>
+              <button
+                type="button"
+                onClick={() => downloadExcelXml('personas_fallecidas.xml', 'PersonasFallecidas', sectionFallecidosOrderedCols, sectionFallecidosRowsWithTotals)}>
+                Descargar Excel - Seccion 4.5
+              </button>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>{sectionFallecidosOrderedCols.map(([, label]) => <th key={`s5-${label}`}>{label}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {sectionFallecidosRowsWithTotals.map((row, idx) => (
+                      <tr key={`s5-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
+                        {sectionFallecidosOrderedCols.map(([key]) => <td key={`s5-${idx}-${key}`}>{formatTableCellValue(key, row[key]) ?? '0'}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
 
 
             <>

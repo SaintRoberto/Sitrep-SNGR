@@ -156,3 +156,17 @@ def get_asistencia_humanitaria_por_lluvias_SNDGIRD(provincia_id=None):
     except pymysql.MySQLError as db_error:
         details = {"mysql_error": str(db_error), "provincia_id": provincia_id}
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
+
+
+def get_personas_fallecidas_por_lluvias(provincia_id=None):
+    query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-FallecidosPorLluvias 2026+`"
+    params = []
+    if provincia_id is not None:
+        query += " WHERE ProvinciaID = %s"
+        params.append(provincia_id)
+
+    try:
+        return _run_query(query, params)
+    except pymysql.MySQLError as db_error:
+        details = {"mysql_error": str(db_error), "provincia_id": provincia_id}
+        raise AfectacionesServiceError("Database query failed", details=details) from db_error

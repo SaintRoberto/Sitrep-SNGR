@@ -14,6 +14,7 @@ from ..services.afectaciones_service import (
     get_alojamientos_temporales_abiertos_por_lluvias,
     get_alojamientos_temporales_cerrados_por_lluvias,
     get_asistencia_humanitaria_por_lluvias_SNDGIRD,
+    get_personas_fallecidas_por_lluvias,
 )
 from ..services.consolidado_service import (
     ConsolidadoServiceError,
@@ -662,3 +663,40 @@ def asistencia_humanitaria_por_sndgird_por_lluvias():
         return jsonify({"total": len(data), "items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
+
+
+@public_bp.get("/personas-fallecidas-por-lluvias")
+@require_api_key
+def personas_fallecidas_por_lluvias():
+    """Lista personas fallecidas por lluvias, opcionalmente filtrados por ProvinciaID
+    ---
+    tags:
+      - Eventos 
+    parameters:
+      - in: query
+        name: ProvinciaID
+        type: integer
+        required: false
+        description: ID de provincia (ej. 1, 2, 3)
+      - in: query
+        name: api_key
+        type: string
+        required: true
+        description: Clave de API para autenticación
+    responses:
+      200:
+        description: Lista de personas fallecidas por lluvias
+      400:
+        description: Parametro ProvinciaID invalido
+      500:
+        description: Error en base de datos
+    """
+    provincia_id, error_response, status_code = _parse_provincia_id_optional()
+    if error_response is not None:
+        return error_response, status_code
+
+    try:
+        data = get_personas_fallecidas_por_lluvias(provincia_id)
+        return jsonify({"total": len(data), "items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": "Database query failed", "details": error.details}), 500 
