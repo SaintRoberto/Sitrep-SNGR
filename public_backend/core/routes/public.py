@@ -15,6 +15,7 @@ from ..services.afectaciones_service import (
     get_alojamientos_temporales_cerrados_por_lluvias,
     get_asistencia_humanitaria_por_lluvias_SNDGIRD,
     get_personas_fallecidas_por_lluvias,
+    get_eventos_lluvias_total_por_mes    
 )
 from ..services.consolidado_service import (
     ConsolidadoServiceError,
@@ -324,7 +325,7 @@ def asistencia_humanitaria_por_sngr_por_lluvias():
 @public_bp.get("/eventos-por-lluvias-km-vias-por-categoria")
 @require_api_key
 def eventos_por_lluvias_km_vias_por_categoria():
-  """Lista total eventos por lluvias por DPA
+  """Lista total eventos por lluvias por DPA km
   ---
   tags:
     - Eventos
@@ -665,6 +666,7 @@ def asistencia_humanitaria_por_sndgird_por_lluvias():
         return jsonify({"error": "Database query failed", "details": error.details}), 500
 
 
+
 @public_bp.get("/personas-fallecidas-por-lluvias")
 @require_api_key
 def personas_fallecidas_por_lluvias():
@@ -700,3 +702,30 @@ def personas_fallecidas_por_lluvias():
         return jsonify({"total": len(data), "items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500 
+      
+      
+@public_bp.get("/eventos-lluvias-total-por-mes")
+@require_api_key
+def eventos_lluvias_total_por_mes():
+    """Lista total eventos por lluvias por mes
+    ---
+    tags:
+      - Eventos
+    parameters:
+      - in: query
+        name: api_key
+        type: string
+        required: true
+        description: Clave de API para autenticación
+    responses:
+      200:
+        description: Lista de eventos por lluvias por mes
+      500:
+        description: Error en base de datos
+    """
+    try:
+        data = get_eventos_lluvias_total_por_mes()
+        return jsonify({"total": len(data), "items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": "Database query failed", "details": error.details}), 500
+      

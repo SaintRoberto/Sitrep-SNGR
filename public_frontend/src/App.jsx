@@ -22,6 +22,8 @@ const ENDPOINTS = {
   alojamientosTemporalesCerradosLluvias: '/api/public/alojamientos-temporales-cerrados-por-lluvias',
   asistenciaHumanitariaLluviasSNDGIRD: '/api/public/asistencia-humanitaria-por-sndgird-por-lluvias',
   personasFallecidasLluvias: '/api/public/personas-fallecidas-por-lluvias',
+  getEventosporLluviasCategoria: '/api/public/eventos-por-lluvias-km-vias-por-categoria',
+  eventosLluviasTotalPorMes: '/api/public/eventos-lluvias-total-por-mes',
 }
 
 const TIPO_LABELS = {
@@ -99,6 +101,31 @@ const EVENT_TYPES = [
   ['Granizada', 'granizadas'],
 ]
 
+const EVENTOS_MES_COLS = [
+  ['mes', 'Mes'],
+  ['eventos', 'Numero de Eventos'],
+  ['personas_impactadas', 'Personas Impactadas'],
+  ['pct_eventos', '% de recurrencia Eventos'],
+  ['pct_personas_impactadas', '% de Personas Impactadas'],
+]
+
+const MESES_ORDENADOS = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre',
+]
+
+const MES_RANK = new Map(MESES_ORDENADOS.map((mes, idx) => [mes.toLowerCase(), idx]))
+
 function n(v) {
   const x = Number(String(v ?? '').replace(',', '.'))
   return Number.isFinite(x) ? x : 0
@@ -145,6 +172,18 @@ function formatInt(v) {
 
 function formatPct(v) {
   return Number(v).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatPctText(v) {
+  return `${formatPct(v)}%`
+}
+
+function getPctClass(v) {
+  const value = n(v)
+  if (value >= 45) return 'pct-very-high'
+  if (value >= 30) return 'pct-high'
+  if (value >= 10) return 'pct-mid'
+  return 'pct-low'
 }
 
 function prettifyLabel(key) {
@@ -279,6 +318,14 @@ function buildSection4(columns, rows) {
       : 'No hay datos suficientes para generar el resumen de afectaciones.'
 
   return { cards: normalizedCards, paragraph }
+}
+
+function normalizeCategoriaVia(value) {
+  const text = String(value || '').trim().toLowerCase()
+  if (text.includes('primer')) return 'Primer orden'
+  if (text.includes('segundo')) return 'Segundo orden'
+  if (text.includes('tercer')) return 'Tercer orden'
+  return String(value || '').trim() || 'Sin categoria'
 }
 
 function buildDetalleAnalisis(rows) {
@@ -442,6 +489,8 @@ function App() {
   const [alojamientosCerradosItems, setAlojamientosCerradosItems] = useState([])
   const [asistenciaSNDGIRDItems, setAsistenciaSNDGIRDItems] = useState([])
   const [personasFalleciasItems, setpersonasFalleciasItems] = useState([])
+  const [eventosMesItems, setEventosMesItems] = useState([])
+  const [viasCategoriaItems, setViasCategoriaItems] = useState([])
 
   const buildApiUrl = (endpointPath, provinciaValue = '') => {
     const base = `${API_BASE_URL}${endpointPath}`
@@ -479,7 +528,81 @@ function App() {
     [items, analysisRows, tipo, dpaTotals]
   )
   const section4 = useMemo(() => buildSection4(currentDetailCols, detailRows), [currentDetailCols, detailRows])
+  const section41ViasCategoria = useMemo(() => {
+    const rows = viasCategoriaItems.map((row) => {
+      const categoria = normalizeCategoriaVia(row?.['Categoria de Vía'] || row?.Categoria || row?.categoria)
+      const kilometros = n(row?.Kilometros || row?.kilometros)
+      return { categoria, kilometros }
+    })
+
+    const byCategoria = new Map()
+    rows.forEach((row) => {
+      byCategoria.set(row.categoria, (byCategoria.get(row.categoria) || 0) + row.kilometros)
+    })
+
+    const ordered = ['Primer orden', 'Segundo orden', 'Tercer orden']
+      .map((categoria) => ({ categoria, kilometros: byCategoria.get(categoria) || 0 }))
+      .filter((row) => row.kilometros > 0)
+
+    const total = ordered.reduce((acc, row) => acc + row.kilometros, 0)
+    return { rows: ordered, total }
+  }, [viasCategoriaItems])
   const detalleAnalisis = useMemo(() => buildDetalleAnalisis(detailRows), [detailRows])
+  const section43Rows = useMemo(() => {
+    const sorted = [...eventosMesItems].sort((a, b) => {
+      const rankA = MES_RANK.get(String(a?.mes || '').toLowerCase()) ?? Number.MAX_SAFE_INTEGER
+      const rankB = MES_RANK.get(String(b?.mes || '').toLowerCase()) ?? Number.MAX_SAFE_INTEGER
+      if (rankA !== rankB) return rankA - rankB
+      return String(a?.mes || '').localeCompare(String(b?.mes || ''), 'es')
+    })
+
+    const totalEventos = sorted.reduce((acc, row) => acc + n(row?.eventos), 0)
+    const totalImpactadas = sorted.reduce((acc, row) => acc + n(row?.personas_impactadas), 0)
+
+    const rows = sorted.map((row) => {
+      const eventos = n(row?.eventos)
+      const personasImpactadas = n(row?.personas_impactadas)
+      const pctEventos = totalEventos > 0 ? (eventos / totalEventos) * 100 : 0
+      const pctPersonas = totalImpactadas > 0 ? (personasImpactadas / totalImpactadas) * 100 : 0
+
+      return {
+        mes: String(row?.mes || '').trim(),
+        eventos,
+        personas_impactadas: personasImpactadas,
+        pct_eventos: pctEventos,
+        pct_personas_impactadas: pctPersonas,
+      }
+    })
+
+    return [
+      ...rows,
+      {
+        __isTotal__: true,
+        mes: 'Total',
+        eventos: totalEventos,
+        personas_impactadas: totalImpactadas,
+        pct_eventos: rows.length ? 100 : 0,
+        pct_personas_impactadas: rows.length ? 100 : 0,
+      },
+    ]
+  }, [eventosMesItems])
+  const section43RowsForExport = useMemo(
+    () =>
+      section43Rows.map((row) => ({
+        ...row,
+        pct_eventos: formatPctText(row.pct_eventos),
+        pct_personas_impactadas: formatPctText(row.pct_personas_impactadas),
+      })),
+    [section43Rows]
+  )
+  const section43Analisis = useMemo(() => {
+    const baseRows = section43Rows.filter((row) => !row.__isTotal__)
+    if (!baseRows.length) return 'No hay datos suficientes para la seccion mensual de eventos por lluvias.'
+
+    const top = [...baseRows].sort((a, b) => b.pct_personas_impactadas - a.pct_personas_impactadas)[0]
+    const pct = formatPctText(top.pct_personas_impactadas)
+    return `Desde el 01/01/2026 a la fecha, el mayor impacto de personas se observa en ${top.mes} con ${pct}.`
+  }, [section43Rows])
   const section6Cols = useMemo(
     () =>
       buildDynamicCols(asistenciaItems, [
@@ -499,7 +622,7 @@ function App() {
   const section6ColsFiltered = useMemo(
     () =>
       section6Cols.filter(([key]) => {
-        if (key === '__no__' || key === 'Provincias' ) return true
+        if (key === '__no__' || key === 'Provincias') return true
 
         const values = section6Rows
           .map((row) => row?.[key])
@@ -551,7 +674,7 @@ function App() {
         'Canton',
         'Parroquia',
         'Tipo',
-        'Nombre',        
+        'Nombre',
         'Apertura',
         'Cierre',
       ]),
@@ -571,7 +694,7 @@ function App() {
   const sectionFallecidosRows = useMemo(() => {
     return personasFalleciasItems.map((row, idx) => ({ __no__: idx + 1, ...row }))
   }, [personasFalleciasItems])
-  
+
   const sectionFallecidosOrderedCols = useMemo(
     () =>
       buildDynamicCols(personasFalleciasItems, [
@@ -602,7 +725,7 @@ function App() {
         'Canton',
         'Parroquia',
         'Tipo',
-        'Nombre',        
+        'Nombre',
         'Apertura',
         'Cierre',
       ]),
@@ -620,7 +743,7 @@ function App() {
 
 
 
-   const section6SNDGIRDCols = useMemo(
+  const section6SNDGIRDCols = useMemo(
     () =>
       buildDynamicCols(asistenciaSNDGIRDItems, [
         'Provincias',
@@ -639,7 +762,7 @@ function App() {
   const section6SNDGIRDColsFiltered = useMemo(
     () =>
       section6SNDGIRDCols.filter(([key]) => {
-        if (key === '__no__' || key === 'Provincias' ) return true
+        if (key === '__no__' || key === 'Provincias') return true
 
         const values = section6SNDGIRDRows
           .map((row) => row?.[key])
@@ -666,6 +789,8 @@ function App() {
     setDpaTotals(null)
     setError('')
     setShowRawJson(false)
+    setEventosMesItems([])
+    setViasCategoriaItems([])
   }, [tipo])
 
   const onConsultar = async (event) => {
@@ -684,9 +809,11 @@ function App() {
         const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias, trimmedProvincia)
         const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias, trimmedProvincia)
         const asistenciaSNDGIRDUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluviasSNDGIRD, trimmedProvincia)
-        const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias, trimmedProvincia)  
+        const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias, trimmedProvincia)
+        const eventosMesUrl = buildApiUrl(ENDPOINTS.eventosLluviasTotalPorMes, trimmedProvincia)
+        const viasCategoriaUrl = buildApiUrl(ENDPOINTS.getEventosporLluviasCategoria, trimmedProvincia)
 
-        const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAlojamientos, responseAlojamientosCerrados, responseAsistenciaSNDGIRD, responsePersonasFallecidas  ] = await Promise.all([ 
+        const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAlojamientos, responseAlojamientosCerrados, responseAsistenciaSNDGIRD, responsePersonasFallecidas, responseEventosMes, responseViasCategoria] = await Promise.all([
           fetch(requestUrl),
           fetch(tipoLluviasUrl),
           fetch(dpaTotalsUrl),
@@ -694,10 +821,12 @@ function App() {
           fetch(alojamientosUrl),
           fetch(alojamientosCerradosUrl),
           fetch(asistenciaSNDGIRDUrl),
-          fetch(personasFallecidasUrl)
+          fetch(personasFallecidasUrl),
+          fetch(eventosMesUrl),
+          fetch(viasCategoriaUrl)
 
         ])
-        const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAlojamientos, dataAlojamientosCerrados, dataAsistenciaSNDGIRD, dataPersonasFallecidas] = await Promise.all([
+        const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAlojamientos, dataAlojamientosCerrados, dataAsistenciaSNDGIRD, dataPersonasFallecidas, dataEventosMes, dataViasCategoria] = await Promise.all([
           responseMain.json(),
           responseTipos.json(),
           responseDpa.json(),
@@ -705,7 +834,9 @@ function App() {
           responseAlojamientos.json(),
           responseAlojamientosCerrados.json(),
           responseAsistenciaSNDGIRD.json(),
-          responsePersonasFallecidas.json()
+          responsePersonasFallecidas.json(),
+          responseEventosMes.json(),
+          responseViasCategoria.json()
         ])
 
         if (!responseMain.ok) throw new Error(dataMain?.error || 'Error consultando API')
@@ -716,6 +847,8 @@ function App() {
         if (!responseAlojamientosCerrados.ok) throw new Error(dataAlojamientosCerrados?.error || 'Error consultando alojamientos temporales cerrados')
         if (!responseAsistenciaSNDGIRD.ok) throw new Error(dataAsistenciaSNDGIRD?.error || 'Error consultando asistencia humanitaria SNDGIRD')
         if (!responsePersonasFallecidas.ok) throw new Error(dataPersonasFallecidas?.error || 'Error consultando personas fallecidas por lluvias')
+        if (!responseEventosMes.ok) throw new Error(dataEventosMes?.error || 'Error consultando eventos por lluvias total por mes')
+        if (!responseViasCategoria.ok) throw new Error(dataViasCategoria?.error || 'Error consultando km de vias por categoria')
 
         setResponseData(dataMain)
         setTipoLluviasItems(dataTipos?.items || [])
@@ -725,6 +858,8 @@ function App() {
         setAlojamientosCerradosItems(dataAlojamientosCerrados?.items || []) // Limpiar alojamientos cerrados al consultar eventos por lluvias
         setAsistenciaSNDGIRDItems(dataAsistenciaSNDGIRD?.items || [])
         setpersonasFalleciasItems(dataPersonasFallecidas?.items || []) // Limpiar personas fallecidas al consultar eventos por lluvias
+        setEventosMesItems(dataEventosMes?.items || [])
+        setViasCategoriaItems(dataViasCategoria?.items || [])
       } else {
         const response = await fetch(requestUrl)
         const data = await response.json()
@@ -737,6 +872,8 @@ function App() {
         setAlojamientosCerradosItems([])
         setAsistenciaSNDGIRDItems([])
         setpersonasFalleciasItems([])
+        setEventosMesItems([])
+        setViasCategoriaItems([])
       }
     } catch (err) {
       setResponseData(null)
@@ -747,6 +884,8 @@ function App() {
       setAlojamientosCerradosItems([])
       setAsistenciaSNDGIRDItems([])
       setpersonasFalleciasItems([])
+      setEventosMesItems([])
+      setViasCategoriaItems([])
       setError(err.message)
     } finally {
       setLoading(false)
@@ -774,7 +913,7 @@ function App() {
       const asistenciaUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluvias, trimmedProvincia)
       const asistenciaSNDGIRDUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluviasSNDGIRD, trimmedProvincia)
       const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias, trimmedProvincia)
-      const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias, trimmedProvincia)  
+      const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias, trimmedProvincia)
       const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias, trimmedProvincia)
 
       const [responseTipos, responseDpa, responseAsistencia, responseAsistenciaSNDGIRD, responseAlojamientos, responseAlojamientosCerrados, responsePersonasFallecidas] = await Promise.all([
@@ -926,6 +1065,21 @@ function App() {
                 <div key={card.key}><span>{card.label}</span><strong>{formatCardValue(card.key, card.value)}</strong></div>
               ))}
             </div>
+            {tipo === 'lluvias' && section41ViasCategoria.rows.length > 0 && (
+              <div className="vias-categoria-card">
+                <h3>Vias afectadas (kilometros)</h3>
+                {section41ViasCategoria.rows.map((row) => (
+                  <div key={`via-cat-${row.categoria}`} className="vias-categoria-row">
+                    <span>{row.categoria}:</span>
+                    <strong>{Number(row.kilometros).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                  </div>
+                ))}
+                <div className="vias-categoria-total">
+                  <span>Total Vias afectadas (kilometros):</span>
+                  <strong>{Number(section41ViasCategoria.total).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                </div>
+              </div>
+            )}
 
             <div className="block-title pt-4">4.2 Detalle de afectaciones por Provincia (de 1 de enero del anio 2026 a la fecha)</div>
             <p className="muted">{detalleAnalisis}</p>
@@ -954,6 +1108,35 @@ function App() {
             </div>
 
             <>
+
+            <div className="block-title pt-4">4.3 Numero de Eventos vs Personas Impactadas por fecha</div>
+            <p className="muted">{section43Analisis}</p>
+            <button
+              type="button"
+              onClick={() => downloadExcelXml('eventos_lluvias_total_por_mes.xml', 'EventosLluviasPorMes', EVENTOS_MES_COLS, section43RowsForExport)}
+              disabled={!section43Rows.length || section43Rows.every((row) => row.__isTotal__)}
+            >
+              Descargar Excel - Seccion 4.3
+            </button>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>{EVENTOS_MES_COLS.map(([, label]) => <th key={`s43-${label}`}>{label}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {section43Rows.map((row, idx) => (
+                    <tr key={`s43-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
+                      <td>{row.mes || '-'}</td>
+                      <td>{formatInt(row.eventos)}</td>
+                      <td>{formatInt(row.personas_impactadas)}</td>
+                      <td className={row.__isTotal__ ? '' : getPctClass(row.pct_eventos)}>{formatPctText(row.pct_eventos)}</td>
+                      <td className={row.__isTotal__ ? '' : getPctClass(row.pct_personas_impactadas)}>{formatPctText(row.pct_personas_impactadas)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
               <div className="block-title pt-4">4.5 Personas Fallecidas</div>
               <button
                 type="button"
@@ -1003,7 +1186,7 @@ function App() {
               </div>
             </>
 
-             <>
+            <>
               <div className="block-title pt-4">5.2 Alojamientos Temporales Cerrados</div>
               <button
                 type="button"
@@ -1054,33 +1237,33 @@ function App() {
                   </table>
                 </div>
               </>
-              
+
             )}
 
-              <>
-                <div className="block-title pt-4">6.2 Asistencia Humanitaria SNDGIRD</div>
-                <button
-                  type="button"
-                  onClick={() => downloadExcelXml('asistencia_humanitaria.xml', 'AsistenciaHumanitaria', section6SNDGIRDColsFiltered, section6SNDGIRDRowsWithTotals)}
-                  disabled={!shouldShowSection6SNDGIRD}
-                >
-                  Descargar Excel - Seccion 6.2
-                </button>
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>{section6SNDGIRDColsFiltered.map(([, label]) => <th key={`s6-${label}`}>{label}</th>)}</tr>
-                    </thead>
-                    <tbody>
-                      {section6SNDGIRDRowsWithTotals.map((row, idx) => (
-                        <tr key={`s6-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
-                          {section6SNDGIRDColsFiltered.map(([key]) => <td key={`s6-${idx}-${key}`}>{row[key] ?? '0'}</td>)}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
+            <>
+              <div className="block-title pt-4">6.2 Asistencia Humanitaria SNDGIRD</div>
+              <button
+                type="button"
+                onClick={() => downloadExcelXml('asistencia_humanitaria.xml', 'AsistenciaHumanitaria', section6SNDGIRDColsFiltered, section6SNDGIRDRowsWithTotals)}
+                disabled={!shouldShowSection6SNDGIRD}
+              >
+                Descargar Excel - Seccion 6.2
+              </button>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>{section6SNDGIRDColsFiltered.map(([, label]) => <th key={`s6-${label}`}>{label}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {section6SNDGIRDRowsWithTotals.map((row, idx) => (
+                      <tr key={`s6-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
+                        {section6SNDGIRDColsFiltered.map(([key]) => <td key={`s6-${idx}-${key}`}>{row[key] ?? '0'}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           </section>
         )}
 
