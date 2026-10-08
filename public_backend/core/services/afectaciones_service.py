@@ -19,6 +19,12 @@ def _run_query(query, params=None):
         connection.close()
 
 
+def _filter_by_provincia(rows, provincia_id):
+    if provincia_id is None:
+        return rows
+    return [row for row in rows if str(row.get("ProvinciaID")) == str(provincia_id)]
+
+
 def test_db_connection():
     try:
         rows = _run_query("SELECT 1 AS ok")
@@ -31,18 +37,20 @@ def test_db_connection():
         raise AfectacionesServiceError("Unexpected service error", details=details) from error
 
 
-def get_eventos_por_lluvias(provincia_id=None):
-    query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-EventosPorLluvias 2026+`"
-    params = []
-    if provincia_id is not None:
-        query += " WHERE ProvinciaID = %s"
-        params.append(provincia_id)
-    query += " ORDER BY NumeroEventos DESC"
+def get_eventos_por_lluvias(desde, hasta, provincia_id=None):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-Afec`(%s, %s)"
+    params = [desde, hasta]
 
     try:
-        return _run_query(query, params)
+        rows = _filter_by_provincia(_run_query(query, params), provincia_id)
+        return sorted(rows, key=lambda row: row.get("NumeroEventos") or 0, reverse=True)
     except pymysql.MySQLError as db_error:
-        details = {"mysql_error": str(db_error), "provincia_id": provincia_id}
+        details = {
+            "mysql_error": str(db_error),
+            "desde": desde,
+            "hasta": hasta,
+            "provincia_id": provincia_id,
+        }
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
 
 
@@ -74,108 +82,116 @@ def get_eventos_por_incendios(provincia_id=None):
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
 
 
-def get_eventos_por_tipo_lluvias(provincia_id=None):
-    query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-EventosPorTipoPorLluvias 2026+`"
-    params = []
-    if provincia_id is not None:
-        query += " WHERE ProvinciaID = %s"
-        params.append(provincia_id)
+def get_eventos_por_tipo_lluvias(desde, hasta, provincia_id=None):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-TipoEvento`(%s, %s)"
+    params = [desde, hasta]
 
     try:
-        return _run_query(query, params)
+        return _filter_by_provincia(_run_query(query, params), provincia_id)
     except pymysql.MySQLError as db_error:
-        details = {"mysql_error": str(db_error), "provincia_id": provincia_id}
+        details = {
+            "mysql_error": str(db_error),
+            "desde": desde,
+            "hasta": hasta,
+            "provincia_id": provincia_id,
+        }
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
 
 
-def get_asistencia_humanitaria_por_lluvias(provincia_id=None):
-    query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-AsistenciaHumanitariaSNGRPorLluvias 2026+`"
-    params = []
-    if provincia_id is not None:
-        query += " WHERE ProvinciaID = %s"
-        params.append(provincia_id)
+def get_asistencia_humanitaria_por_lluvias(desde, hasta, provincia_id=None):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-AHS`(%s, %s)"
+    params = [desde, hasta]
 
     try:
-        return _run_query(query, params)
+        return _filter_by_provincia(_run_query(query, params), provincia_id)
     except pymysql.MySQLError as db_error:
-        details = {"mysql_error": str(db_error), "provincia_id": provincia_id}
+        details = {
+            "mysql_error": str(db_error),
+            "desde": desde,
+            "hasta": hasta,
+            "provincia_id": provincia_id,
+        }
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
 
 
-def get_eventos_por_lluvias_lluvias_total_por_dpa():
-    query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-EventosPorLluviasTotalPorDPA 2026+`"
-    params = []
+def get_eventos_por_lluvias_lluvias_total_por_dpa(desde, hasta):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-TotalDPA`(%s, %s)"
+    params = [desde, hasta]
     try:
         return _run_query(query, params)
     except pymysql.MySQLError as db_error:
-        details = {"mysql_error": str(db_error)}
+        details = {"mysql_error": str(db_error), "desde": desde, "hasta": hasta}
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
 
 
-def get_alojamientos_temporales_abiertos_por_lluvias():
-    query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-AlojamientosTemporalesAbiertosPorLluvias 2026+`"
-    params = []
+def get_alojamientos_temporales_abiertos_por_lluvias(desde, hasta):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-ATA`(%s, %s)"
+    params = [desde, hasta]
     try:
         return _run_query(query, params)
     except pymysql.MySQLError as db_error:
-        details = {"mysql_error": str(db_error)}
+        details = {"mysql_error": str(db_error), "desde": desde, "hasta": hasta}
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
 
 
-def get_alojamientos_temporales_cerrados_por_lluvias():
-    query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-AlojamientosTemporalesCerradosPorLluvias 2026+`"
-    params = []
+def get_alojamientos_temporales_cerrados_por_lluvias(desde, hasta):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-ATC`(%s, %s)"
+    params = [desde, hasta]
     try:
         return _run_query(query, params)
     except pymysql.MySQLError as db_error:
-        details = {"mysql_error": str(db_error)}
+        details = {"mysql_error": str(db_error), "desde": desde, "hasta": hasta}
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
 
 
-def get_eventos_por_lluvias_km_vias_por_categoria(provincia_id=None):
-    query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-EventosPorLluviasKmViasPorCategoria 2026+`"
-    params = []
+def get_eventos_por_lluvias_km_vias_por_categoria(desde, hasta):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-KMViasCtg`(%s, %s)"
+    params = [desde, hasta]
     try:
         return _run_query(query, params)
     except pymysql.MySQLError as db_error:
-        details = {"mysql_error": str(db_error)}
+        details = {"mysql_error": str(db_error), "desde": desde, "hasta": hasta}
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
 
 
 
 
-def get_asistencia_humanitaria_por_lluvias_SNDGIRD(provincia_id=None):
-    query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-AsistenciaHumanitariaSNDGIRDPorLluvias 2026+`"
-    params = []
-    if provincia_id is not None:
-        query += " WHERE ProvinciaID = %s"
-        params.append(provincia_id)
+def get_asistencia_humanitaria_por_lluvias_SNDGIRD(desde, hasta, provincia_id=None):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-AHT`(%s, %s)"
+    params = [desde, hasta]
 
     try:
-        return _run_query(query, params)
+        return _filter_by_provincia(_run_query(query, params), provincia_id)
     except pymysql.MySQLError as db_error:
-        details = {"mysql_error": str(db_error), "provincia_id": provincia_id}
+        details = {
+            "mysql_error": str(db_error),
+            "desde": desde,
+            "hasta": hasta,
+            "provincia_id": provincia_id,
+        }
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
 
 
-def get_personas_fallecidas_por_lluvias(provincia_id=None):
-    query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-FallecidosPorLluvias 2026+`"
-    params = []
-    if provincia_id is not None:
-        query += " WHERE ProvinciaID = %s"
-        params.append(provincia_id)
+def get_personas_fallecidas_por_lluvias(desde, hasta, provincia_id=None):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-Fallecidos`(%s, %s)"
+    params = [desde, hasta]
 
     try:
-        return _run_query(query, params)
+        return _filter_by_provincia(_run_query(query, params), provincia_id)
     except pymysql.MySQLError as db_error:
-        details = {"mysql_error": str(db_error), "provincia_id": provincia_id}
+        details = {
+            "mysql_error": str(db_error),
+            "desde": desde,
+            "hasta": hasta,
+            "provincia_id": provincia_id,
+        }
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
     
-def get_eventos_lluvias_total_por_mes():
-    query = "SELECT * FROM dmeva.`RED-M-2026-Sitrep-EventosPorLluviasTotalPorMeses 2026+`"
-    params = []
+def get_eventos_lluvias_total_por_mes(desde, hasta):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-Meses`(%s, %s)"
+    params = [desde, hasta]
     try:
         return _run_query(query, params)
     except pymysql.MySQLError as db_error:
-        details = {"mysql_error": str(db_error)}
+        details = {"mysql_error": str(db_error), "desde": desde, "hasta": hasta}
         raise AfectacionesServiceError("Database query failed", details=details) from db_error

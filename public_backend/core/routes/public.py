@@ -85,6 +85,35 @@ def _parse_provincia_id_optional():
         return None, jsonify({"error": "ProvinciaID must be an integer"}), 400
 
 
+def _parse_sitrep_date_range():
+    now = datetime.now()
+    desde_raw = (request.args.get("desde") or "").strip()
+    hasta_raw = (request.args.get("hasta") or "").strip()
+
+    try:
+        desde = datetime.fromisoformat(desde_raw) if desde_raw else datetime(now.year, 1, 1)
+        hasta = datetime.fromisoformat(hasta_raw) if hasta_raw else now
+    except ValueError:
+        return None, None, jsonify({
+            "error": "desde and hasta must use YYYY-MM-DD or ISO datetime format"
+        }), 400
+
+    if desde.tzinfo is not None or hasta.tzinfo is not None:
+        return None, None, jsonify({
+            "error": "desde and hasta must not include a timezone"
+        }), 400
+
+    if desde_raw and len(desde_raw) == 10:
+        desde = desde.replace(hour=0, minute=0, second=0, microsecond=0)
+    if hasta_raw and len(hasta_raw) == 10:
+        hasta = hasta.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    if desde > hasta:
+        return None, None, jsonify({"error": "desde cannot be greater than hasta"}), 400
+
+    return desde, hasta, None, None
+
+
 @public_bp.get("/eventos-por-lluvias")
 @require_api_key
 def eventos_por_lluvias():
@@ -114,9 +143,12 @@ def eventos_por_lluvias():
     provincia_id, error_response, status_code = _parse_provincia_id_optional()
     if error_response is not None:
         return error_response, status_code
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
 
     try:
-        data = get_eventos_por_lluvias(provincia_id)
+        data = get_eventos_por_lluvias(desde, hasta, provincia_id)
         return jsonify({"total": len(data), "items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
@@ -215,9 +247,12 @@ def eventos_por_tipo_lluvias():
     provincia_id, error_response, status_code = _parse_provincia_id_optional()
     if error_response is not None:
         return error_response, status_code
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
 
     try:
-        data = get_eventos_por_tipo_lluvias(provincia_id)
+        data = get_eventos_por_tipo_lluvias(desde, hasta, provincia_id)
         return jsonify({"total": len(data), "items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
@@ -252,9 +287,12 @@ def asistencia_humanitaria_por_lluvias():
     provincia_id, error_response, status_code = _parse_provincia_id_optional()
     if error_response is not None:
         return error_response, status_code
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
 
     try:
-        data = get_asistencia_humanitaria_por_lluvias(provincia_id)
+        data = get_asistencia_humanitaria_por_lluvias(desde, hasta, provincia_id)
         return jsonify({"total": len(data), "items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
@@ -279,8 +317,12 @@ def eventos_por_lluvias_total_por_dpa():
       500:
         description: Error en base de datos
     """
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
+
     try:
-        data = get_eventos_por_lluvias_lluvias_total_por_dpa()
+        data = get_eventos_por_lluvias_lluvias_total_por_dpa(desde, hasta)
         return jsonify({"total": len(data), "items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
@@ -314,9 +356,12 @@ def asistencia_humanitaria_por_sngr_por_lluvias():
     provincia_id, error_response, status_code = _parse_provincia_id_optional()
     if error_response is not None:
         return error_response, status_code
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
 
     try:
-        data = get_asistencia_humanitaria_por_lluvias(provincia_id)
+        data = get_asistencia_humanitaria_por_lluvias(desde, hasta, provincia_id)
         return jsonify({"total": len(data), "items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
@@ -341,8 +386,12 @@ def eventos_por_lluvias_km_vias_por_categoria():
     500:
       description: Error en base de datos
   """
+  desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+  if error_response is not None:
+      return error_response, status_code
+
   try:
-      data = get_eventos_por_lluvias_km_vias_por_categoria()
+      data = get_eventos_por_lluvias_km_vias_por_categoria(desde, hasta)
       return jsonify({"total": len(data), "items": data}), 200
   except AfectacionesServiceError as error:
       return jsonify({"error": "Database query failed", "details": error.details}), 500
@@ -366,8 +415,12 @@ def alojamientos_temporales_abiertos_por_lluvias():
       500:
         description: Error en base de datos
     """
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
+
     try:
-        data = get_alojamientos_temporales_abiertos_por_lluvias()
+        data = get_alojamientos_temporales_abiertos_por_lluvias(desde, hasta)
         return jsonify({"items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
@@ -391,8 +444,12 @@ def alojamientos_temporales_cerrados_por_lluvias():
       500:
         description: Error en base de datos
     """
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
+
     try:
-        data = get_alojamientos_temporales_cerrados_por_lluvias()
+        data = get_alojamientos_temporales_cerrados_por_lluvias(desde, hasta)
         return jsonify({"items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
@@ -658,9 +715,12 @@ def asistencia_humanitaria_por_sndgird_por_lluvias():
     provincia_id, error_response, status_code = _parse_provincia_id_optional()
     if error_response is not None:
         return error_response, status_code
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
 
     try:
-        data = get_asistencia_humanitaria_por_lluvias_SNDGIRD(provincia_id)
+        data = get_asistencia_humanitaria_por_lluvias_SNDGIRD(desde, hasta, provincia_id)
         return jsonify({"total": len(data), "items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
@@ -696,9 +756,12 @@ def personas_fallecidas_por_lluvias():
     provincia_id, error_response, status_code = _parse_provincia_id_optional()
     if error_response is not None:
         return error_response, status_code
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
 
     try:
-        data = get_personas_fallecidas_por_lluvias(provincia_id)
+        data = get_personas_fallecidas_por_lluvias(desde, hasta, provincia_id)
         return jsonify({"total": len(data), "items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500 
@@ -723,9 +786,12 @@ def eventos_lluvias_total_por_mes():
       500:
         description: Error en base de datos
     """
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
+
     try:
-        data = get_eventos_lluvias_total_por_mes()
+        data = get_eventos_lluvias_total_por_mes(desde, hasta)
         return jsonify({"total": len(data), "items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
-      

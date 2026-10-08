@@ -1,2 +1,5 @@
 ﻿*.env
 *.pyc
+public_backend/.cuerpos_hidricos.sha256
+public_backend/.cuerpos_hidricos.sha256.tmp
+*.pdf

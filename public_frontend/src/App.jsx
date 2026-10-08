@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { exportEventosLluviasPdf } from './utils/pdfReport'
 
@@ -66,6 +66,45 @@ const DETAIL_COLS = [
   ['AfectadosAnimales', 'Animales Afectados'],
   ['MuertosAnimales', 'Animales Muertos'],
 ]
+
+const INDICATOR_ICON_FILES = {
+  ImpactadasPersonas: 'total personas.png',
+  Extraviados: '03 personas desaparecidas2.png',
+  Fallecidos: '01 persona fallecida.png',
+  Heridos: '02 personas heridas.png',
+  AfectadosPersonas: '04 personas afectadas.png',
+  DamnificadosPersonas: '06 personas damnificadas.png',
+  AfectadosFamilias: '05 familias afectadas.png',
+  DamnificadosFamilias: '07 familias damnificadas.png',
+  AfectadosViviendas: 'vivienda afectada.png',
+  DestruidosViviendas: 'vivienda destruida.png',
+  AfectadosPuentes: 'puente afectado.png',
+  DestruidosPuentes: 'puente destruido.png',
+  AfectadosPrivados: 'bienes privados afectados3.png',
+  DestruidosPrivados: 'bienes privados destruidos.png',
+  AfectadosPublicos: 'Infraestructura pública afectada.png',
+  DestruidosPublicos: 'Infraestructura pública destruida.png',
+  AfectadosEducativos: 'establecimiento educativo afectado.png',
+  DestruidosEducativos: 'establecimiento educativo destruido.png',
+  FuncionalEducativos: 'educacion_mtt5.png',
+  AfectadosSalud: 'establecimiento de salud afectados.png',
+  DestruidosSalud: 'establecimiento de salud destruidos.png',
+  Evacuados: 'personas evacuadas.png',
+  AfectadosKilometros: 'metros vias afectados.png',
+  AfectadosMetros: 'metros vias afectados.png',
+  AfectadosHectareas: 'hectareas cob vegetal afectadas2.png',
+  PerdidosHectareas: 'hectareas cob vegetal destruidas 2.png',
+  QuemadasHectareas: 'hectareas cob vegetal afectadas2 2.png',
+  AfectadosAnimales: 'animales afectados.png',
+  MuertosAnimales: 'animales muertos.png',
+}
+
+function getIndicatorIcon(key) {
+  const fileName = INDICATOR_ICON_FILES[key]
+  return fileName
+    ? `${import.meta.env.BASE_URL}assets/iconos%20SITREP/${encodeURIComponent(fileName)}`
+    : null
+}
 
 const TIPO_LLUVIAS_COLS = [
   ['Provincia', 'Provincia'],
@@ -229,7 +268,7 @@ function buildDynamicCols(items, priority = ['Provincia', 'NumeroEventos', 'Prov
   ]
 }
 
-function buildPuntosImportantes(items, analysisRows, tipo, dpaTotals = null) {
+function buildPuntosImportantes(items, analysisRows, tipo, dpaTotals = null, desde = '', hasta = '') {
   const totalEventosAnalysis = analysisRows.reduce((acc, row) => acc + n(row.NumeroEventos), 0)
   const totalEventosItems = items.reduce((acc, row) => acc + n(row.NumeroEventos), 0)
   const totalEventos = totalEventosAnalysis > 0 ? totalEventosAnalysis : totalEventosItems
@@ -282,10 +321,10 @@ function buildPuntosImportantes(items, analysisRows, tipo, dpaTotals = null) {
     .map(([provincia]) => provincia)
 
   return {
-    line1: `Desde el 1 de enero de 2026 hasta la presente fecha se han registrado ${formatInt(totalEventos)} eventos por ${TIPO_LABELS[tipo] || 'evento'} afectando a ${formatInt(provincias)} provincias, ${formatInt(cantones)} cantones y ${formatInt(parroquias)} parroquias. Los eventos mas recurrentes corresponden a: ${typesText} entre los principales.`,
+    line1: `Desde el ${formatDateLong(desde)} hasta el ${formatDateLong(hasta)} se han registrado ${formatInt(totalEventos)} eventos por ${TIPO_LABELS[tipo] || 'evento'} afectando a ${formatInt(provincias)} provincias, ${formatInt(cantones)} cantones y ${formatInt(parroquias)} parroquias. Los eventos mas recurrentes corresponden a: ${typesText} entre los principales.`,
     line2: topProvincias.length
-      ? `En lo que va del anio 2026, las provincias con mayor impacto a la poblacion son: ${topProvincias.join(', ')}.`
-      : 'En lo que va del anio 2026, no hay datos suficientes para identificar provincias con mayor impacto a la poblacion.',
+      ? `Durante el período seleccionado, las provincias con mayor impacto a la población son: ${topProvincias.join(', ')}.`
+      : 'Durante el período seleccionado no hay datos suficientes para identificar provincias con mayor impacto a la población.',
   }
 }
 
@@ -302,7 +341,7 @@ function buildSection4(columns, rows) {
 
       const total = rows.reduce((acc, row) => acc + n(row?.[key]), 0)
       const roundedTotal = key === 'AfectadosKilometros' ? Number(total.toFixed(2)) : total
-      return { key, label, value: roundedTotal }
+      return { key, label, value: roundedTotal, icon: getIndicatorIcon(key) }
     })
     .filter(Boolean)
 
@@ -475,9 +514,41 @@ function formatTableCellValue(key, value) {
   return value
 }
 
+function toDateTimeInputValue(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+function parseDateInput(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/.exec(String(value || ''))
+  if (!match) return null
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4] || 0), Number(match[5] || 0))
+}
+
+function formatDateLong(value) {
+  const date = parseDateInput(value)
+  return date ? date.toLocaleString('es-EC', {
+    day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+  }) : String(value || '')
+}
+
+function formatDateNumeric(value) {
+  const date = parseDateInput(value)
+  return date ? date.toLocaleString('es-EC', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+  }) : String(value || '')
+}
+
 function App() {
+  const maxSelectableDateTime = useMemo(() => toDateTimeInputValue(new Date()), [])
   const [tipo, setTipo] = useState('lluvias')
   const [provinciaId, setProvinciaId] = useState('')
+  const [desde, setDesde] = useState(() => `${new Date().getFullYear()}-01-01T00:00`)
+  const [hasta, setHasta] = useState(() => toDateTimeInputValue(new Date()))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [responseData, setResponseData] = useState(null)
@@ -492,18 +563,26 @@ function App() {
   const [eventosMesItems, setEventosMesItems] = useState([])
   const [viasCategoriaItems, setViasCategoriaItems] = useState([])
 
-  const buildApiUrl = (endpointPath, provinciaValue = '') => {
+  const buildApiUrl = useCallback((endpointPath, provinciaValue = '') => {
     const base = `${API_BASE_URL}${endpointPath}`
     const params = new URLSearchParams()
     if (PUBLIC_API_KEY) params.set('api_key', PUBLIC_API_KEY)
     const trimmedProvincia = provinciaValue.trim()
     if (trimmedProvincia) params.set('ProvinciaID', trimmedProvincia)
+    if (desde) params.set('desde', desde)
+    if (hasta) params.set('hasta', hasta)
     const query = params.toString()
     return query ? `${base}?${query}` : base
-  }
-  const requestUrl = useMemo(() => buildApiUrl(ENDPOINTS[tipo], provinciaId), [tipo, provinciaId])
+  }, [desde, hasta])
+  const requestUrl = useMemo(() => buildApiUrl(ENDPOINTS[tipo], provinciaId), [buildApiUrl, tipo, provinciaId])
+  const dateRangeValid = Boolean(desde && hasta && desde <= hasta)
 
-  const items = responseData?.items ?? []
+  const validateDateRange = () => {
+    if (!desde || !hasta) throw new Error('Selecciona las fechas Desde y Hasta.')
+    if (desde > hasta) throw new Error('La fecha Desde no puede ser posterior a la fecha Hasta.')
+  }
+
+  const items = useMemo(() => responseData?.items ?? [], [responseData])
   const analysisRows = tipo === 'lluvias' ? tipoLluviasItems : items
   const currentDetailCols = useMemo(() => (tipo === 'lluvias' ? DETAIL_COLS : buildDynamicCols(items)), [tipo, items])
   const detailRows = useMemo(() => {
@@ -524,8 +603,8 @@ function App() {
   )
   const section5RowsWithTotals = useMemo(() => withTotalsRow(currentDetailCols, detailRows), [currentDetailCols, detailRows])
   const puntosImportantes = useMemo(
-    () => buildPuntosImportantes(items, analysisRows, tipo, dpaTotals),
-    [items, analysisRows, tipo, dpaTotals]
+    () => buildPuntosImportantes(items, analysisRows, tipo, dpaTotals, desde, hasta),
+    [items, analysisRows, tipo, dpaTotals, desde, hasta]
   )
   const section4 = useMemo(() => buildSection4(currentDetailCols, detailRows), [currentDetailCols, detailRows])
   const section41ViasCategoria = useMemo(() => {
@@ -601,8 +680,8 @@ function App() {
 
     const top = [...baseRows].sort((a, b) => b.pct_personas_impactadas - a.pct_personas_impactadas)[0]
     const pct = formatPctText(top.pct_personas_impactadas)
-    return `Desde el 01/01/2026 a la fecha, el mayor impacto de personas se observa en ${top.mes} con ${pct}.`
-  }, [section43Rows])
+    return `Desde el ${formatDateNumeric(desde)} hasta el ${formatDateNumeric(hasta)}, el mayor impacto de personas se observa en ${top.mes} con ${pct}.`
+  }, [section43Rows, desde, hasta])
   const section6Cols = useMemo(
     () =>
       buildDynamicCols(asistenciaItems, [
@@ -682,6 +761,7 @@ function App() {
   )
 
   const section5AlojamientosCerradosRows = useMemo(() => withTotalsRow(section5OrderedColsCerrados, section5RowsCerrados), [section5OrderedColsCerrados, section5RowsCerrados])
+  const shouldShowSection5Closed = useMemo(() => section5RowsCerrados.length > 0, [section5RowsCerrados.length])
   const alojamientosAnalisis = useMemo(() => {
     const anioActual = new Date().getFullYear()
     const totalAbiertos = alojamientosItems.length
@@ -800,6 +880,7 @@ function App() {
 
     try {
       if (!PUBLIC_API_KEY) throw new Error('Falta VITE_PUBLIC_API_KEY en el frontend.')
+      validateDateRange()
 
       if (tipo === 'lluvias') {
         const trimmedProvincia = provinciaId.trim()
@@ -907,7 +988,9 @@ function App() {
     setError('')
     try {
       if (!PUBLIC_API_KEY) throw new Error('Falta VITE_PUBLIC_API_KEY en el frontend.')
+      validateDateRange()
       const trimmedProvincia = provinciaId.trim()
+      const mainUrl = buildApiUrl(ENDPOINTS.lluvias, trimmedProvincia)
       const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias, trimmedProvincia)
       const dpaTotalsUrl = buildApiUrl(ENDPOINTS.lluviasTotalPorDpa, trimmedProvincia)
       const asistenciaUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluvias, trimmedProvincia)
@@ -915,25 +998,34 @@ function App() {
       const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias, trimmedProvincia)
       const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias, trimmedProvincia)
       const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias, trimmedProvincia)
+      const eventosMesUrl = buildApiUrl(ENDPOINTS.eventosLluviasTotalPorMes, trimmedProvincia)
+      const viasCategoriaUrl = buildApiUrl(ENDPOINTS.getEventosporLluviasCategoria, trimmedProvincia)
 
-      const [responseTipos, responseDpa, responseAsistencia, responseAsistenciaSNDGIRD, responseAlojamientos, responseAlojamientosCerrados, responsePersonasFallecidas] = await Promise.all([
+      const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAsistenciaSNDGIRD, responseAlojamientos, responseAlojamientosCerrados, responsePersonasFallecidas, responseEventosMes, responseViasCategoria] = await Promise.all([
+        fetch(mainUrl),
         fetch(tipoLluviasUrl),
         fetch(dpaTotalsUrl),
         fetch(asistenciaUrl),
         fetch(asistenciaSNDGIRDUrl),
         fetch(alojamientosUrl),
         fetch(alojamientosCerradosUrl),
-        fetch(personasFallecidasUrl)
+        fetch(personasFallecidasUrl),
+        fetch(eventosMesUrl),
+        fetch(viasCategoriaUrl)
       ])
-      const [dataTipos, dataDpa, dataAsistencia, dataAsistenciaSNDGIRD, dataAlojamientos, dataAlojamientosCerrados, dataPersonasFallecidas] = await Promise.all([
+      const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAsistenciaSNDGIRD, dataAlojamientos, dataAlojamientosCerrados, dataPersonasFallecidas, dataEventosMes, dataViasCategoria] = await Promise.all([
+        responseMain.json(),
         responseTipos.json(),
         responseDpa.json(),
         responseAsistencia.json(),
         responseAsistenciaSNDGIRD.json(),
         responseAlojamientos.json(),
         responseAlojamientosCerrados.json(),
-        responsePersonasFallecidas.json()
+        responsePersonasFallecidas.json(),
+        responseEventosMes.json(),
+        responseViasCategoria.json()
       ])
+      if (!responseMain.ok) throw new Error(dataMain?.error || 'Error consultando eventos por lluvias')
       if (!responseTipos.ok) throw new Error(dataTipos?.error || 'Error consultando eventos por tipo de lluvias')
       if (!responseDpa.ok) throw new Error(dataDpa?.error || 'Error consultando totales DPA')
       if (!responseAsistencia.ok) throw new Error(dataAsistencia?.error || 'Error consultando asistencia humanitaria')
@@ -941,14 +1033,23 @@ function App() {
       if (!responseAlojamientos.ok) throw new Error(dataAlojamientos?.error || 'Error consultando alojamientos temporales')
       if (!responseAlojamientosCerrados.ok) throw new Error(dataAlojamientosCerrados?.error || 'Error consultando alojamientos temporales cerrados')
       if (!responsePersonasFallecidas.ok) throw new Error(dataPersonasFallecidas?.error || 'Error consultando personas fallecidas por lluvias')
+      if (!responseEventosMes.ok) throw new Error(dataEventosMes?.error || 'Error consultando eventos por lluvias total por mes')
+      if (!responseViasCategoria.ok) throw new Error(dataViasCategoria?.error || 'Error consultando km de vías por categoría')
 
-      exportEventosLluviasPdf({
-        items,
+      await exportEventosLluviasPdf({
+        items: dataMain?.items || [],
         tipoLluviasItems: dataTipos?.items || [],
         asistenciaItems: dataAsistencia?.items || [],
+        asistenciaSNDGIRDItems: dataAsistenciaSNDGIRD?.items || [],
+        alojamientosItems: dataAlojamientos?.items || [],
+        alojamientosCerradosItems: dataAlojamientosCerrados?.items || [],
+        eventosMesItems: dataEventosMes?.items || [],
+        viasCategoriaItems: dataViasCategoria?.items || [],
         dpaTotals: (dataDpa?.items || [])[0] || null,
         provinciaId: provinciaId.trim() || null,
-        personasFallecidasItems: dataPersonasFallecidas?.items || []
+        personasFallecidasItems: dataPersonasFallecidas?.items || [],
+        startDate: desde,
+        endDate: hasta,
       })
     } catch (err) {
       setError(err.message)
@@ -979,8 +1080,33 @@ function App() {
             <input type="number" min="1" placeholder="Ej: 1" value={provinciaId} onChange={(e) => setProvinciaId(e.target.value)} />
           </label>
 
-          <button type="submit" disabled={loading || !API_BASE_URL}>{loading ? 'Consultando...' : 'Consultar'}</button>
-          <button type="button" onClick={onDescargarPrincipal} disabled>
+          <label>
+            Desde
+            <input
+              type="datetime-local"
+              step="60"
+              required
+              max={hasta || maxSelectableDateTime}
+              value={desde}
+              onChange={(e) => setDesde(e.target.value)}
+            />
+          </label>
+
+          <label>
+            Hasta
+            <input
+              type="datetime-local"
+              step="60"
+              required
+              min={desde}
+              max={maxSelectableDateTime}
+              value={hasta}
+              onChange={(e) => setHasta(e.target.value)}
+            />
+          </label>
+
+          <button type="submit" disabled={loading || !API_BASE_URL || !dateRangeValid}>{loading ? 'Consultando...' : 'Consultar'}</button>
+          <button type="button" onClick={onDescargarPrincipal} disabled={loading || !dateRangeValid}>
             {'Descargar PDF'}
           </button>
           <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled>
@@ -1012,7 +1138,7 @@ function App() {
                   Descargar Excel - Seccion 3
                 </button>
                 <div className="table-wrap">
-                  <p>Desde el 1 de enero del 2026 a la fecha se registraron un total de {formatInt(totalEventosAdversos)} eventos
+                  <p>Desde el {formatDateLong(desde)} hasta el {formatDateLong(hasta)} se registraron un total de {formatInt(totalEventosAdversos)} eventos
                     adversos, distribuidos de la siguiente manera:
                   </p>
                   <table>
@@ -1039,7 +1165,7 @@ function App() {
                   Descargar Excel - Seccion 3
                 </button>
                 <div className="table-wrap">
-                  <p>Desde el 1 de enero del 2026 a la fecha se registraron un total de {formatInt(totalEventosAdversos)} eventos
+                  <p>Desde el {formatDateLong(desde)} hasta el {formatDateLong(hasta)} se registraron un total de {formatInt(totalEventosAdversos)} eventos
                     adversos, distribuidos de la siguiente manera:
                   </p>
                   <table>
@@ -1062,7 +1188,13 @@ function App() {
             <p className="muted">{section4.paragraph}</p>
             <div className="summary-grid">
               {section4.cards.map((card) => (
-                <div key={card.key}><span>{card.label}</span><strong>{formatCardValue(card.key, card.value)}</strong></div>
+                <div key={card.key}>
+                  <span className="summary-card-label">
+                    {card.icon && <img src={card.icon} alt="" aria-hidden="true" />}
+                    <span>{card.label}</span>
+                  </span>
+                  <strong>{formatCardValue(card.key, card.value)}</strong>
+                </div>
               ))}
             </div>
             {tipo === 'lluvias' && section41ViasCategoria.rows.length > 0 && (
@@ -1081,7 +1213,7 @@ function App() {
               </div>
             )}
 
-            <div className="block-title pt-4">4.2 Detalle de afectaciones por Provincia (de 1 de enero del anio 2026 a la fecha)</div>
+            <div className="block-title pt-4">4.2 Detalle de afectaciones por Provincia ({formatDateNumeric(desde)} al {formatDateNumeric(hasta)})</div>
             <p className="muted">{detalleAnalisis}</p>
             <button
               type="button"
@@ -1161,54 +1293,60 @@ function App() {
 
 
             <>
-              <div className="block-title pt-4">5.1 Alojamientos Temporales</div>
+              <div className="block-title pt-4">5.1 Alojamientos Temporales Abiertos</div>
               <p className="muted">{alojamientosAnalisis}</p>
-              <button
-                type="button"
-                onClick={() => downloadExcelXml('alojamientos_temporales_abiertos.xml', 'AlojamientosTemporales', section5OrderedCols, section5AlojRowsWithTotals)}
-                disabled={!shouldShowSection5}
-              >
-                Descargar Excel - Seccion 5.1
-              </button>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>{section5OrderedCols.map(([, label]) => <th key={`s5-${label}`}>{label}</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    {section5AlojRowsWithTotals.map((row, idx) => (
-                      <tr key={`s5-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
-                        {section5OrderedCols.map(([key]) => <td key={`s5-${idx}-${key}`}>{formatTableCellValue(key, row[key]) ?? '0'}</td>)}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {shouldShowSection5 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => downloadExcelXml('alojamientos_temporales_abiertos.xml', 'AlojamientosTemporales', section5OrderedCols, section5AlojRowsWithTotals)}
+                  >
+                    Descargar Excel - Seccion 5.1
+                  </button>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>{section5OrderedCols.map(([, label]) => <th key={`s5-${label}`}>{label}</th>)}</tr>
+                      </thead>
+                      <tbody>
+                        {section5AlojRowsWithTotals.map((row, idx) => (
+                          <tr key={`s5-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
+                            {section5OrderedCols.map(([key]) => <td key={`s5-${idx}-${key}`}>{formatTableCellValue(key, row[key]) ?? '0'}</td>)}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </>
 
             <>
               <div className="block-title pt-4">5.2 Alojamientos Temporales Cerrados</div>
-              <button
-                type="button"
-                onClick={() => downloadExcelXml('alojamientos_temporales_cerrados.xml', 'AlojamientosTemporales', section5OrderedColsCerrados, section5AlojamientosCerradosRows)}
-                disabled={!shouldShowSection5}
-              >
-                Descargar Excel - Seccion 5.2
-              </button>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>{section5OrderedColsCerrados.map(([, label]) => <th key={`s5-${label}`}>{label}</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    {section5AlojamientosCerradosRows.map((row, idx) => (
-                      <tr key={`s5-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
-                        {section5OrderedColsCerrados.map(([key]) => <td key={`s5-${idx}-${key}`}>{formatTableCellValue(key, row[key]) ?? '0'}</td>)}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {shouldShowSection5Closed && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => downloadExcelXml('alojamientos_temporales_cerrados.xml', 'AlojamientosTemporales', section5OrderedColsCerrados, section5AlojamientosCerradosRows)}
+                  >
+                    Descargar Excel - Seccion 5.2
+                  </button>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>{section5OrderedColsCerrados.map(([, label]) => <th key={`s5-${label}`}>{label}</th>)}</tr>
+                      </thead>
+                      <tbody>
+                        {section5AlojamientosCerradosRows.map((row, idx) => (
+                          <tr key={`s5-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
+                            {section5OrderedColsCerrados.map(([key]) => <td key={`s5-${idx}-${key}`}>{formatTableCellValue(key, row[key]) ?? '0'}</td>)}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </>
 
 

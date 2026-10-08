@@ -258,8 +258,6 @@ def get_consolidado():
         connection.close()
 
 
-
-
 def get_data_rios(fecha_inicio: str, fecha_fin: str):
     query = """
             SELECT *
