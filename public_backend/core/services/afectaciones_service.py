@@ -195,3 +195,75 @@ def get_eventos_lluvias_total_por_mes(desde, hasta):
     except pymysql.MySQLError as db_error:
         details = {"mysql_error": str(db_error), "desde": desde, "hasta": hasta}
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
+
+
+def get_cuerpos_hidricos_por_estado(estado):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-Cuerpos-Hidricos`(%s)"
+    params = [estado]
+
+    try:
+        return _run_query(query, params)
+    except pymysql.MySQLError as db_error:
+        details = {"mysql_error": str(db_error), "estado": estado}
+        raise AfectacionesServiceError("Database query failed", details=details) from db_error
+
+
+def get_niveles_alerta_por_lluvias(desde, hasta):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-NivelAlerta`(%s, %s, %s)"
+    params = [desde, hasta, "El Niño"]
+
+    try:
+        return _run_query(query, params)
+    except pymysql.MySQLError as db_error:
+        details = {"mysql_error": str(db_error), "desde": desde, "hasta": hasta}
+        raise AfectacionesServiceError("Database query failed", details=details) from db_error
+
+
+def get_declaratorias_emergencia_por_lluvias(desde, hasta):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-Emergencia`(%s, %s, %s)"
+    params = [desde, hasta, "El Niño"]
+
+    try:
+        return _run_query(query, params)
+    except pymysql.MySQLError as db_error:
+        details = {"mysql_error": str(db_error), "desde": desde, "hasta": hasta}
+        raise AfectacionesServiceError("Database query failed", details=details) from db_error
+
+
+def get_coes_por_lluvias(desde, hasta, nivel):
+    niveles_permitidos = {"COE-N", "COE-P", "COE-M", "COPAE"}
+    if nivel not in niveles_permitidos:
+        raise AfectacionesServiceError(
+            "Invalid COE level",
+            details={"nivel": nivel, "allowed": sorted(niveles_permitidos)},
+        )
+
+    query = "CALL dmeva.`spSitRepNac-Lluvias-COE`(%s, %s, %s, %s)"
+    params = [desde, hasta, nivel, "El Niño,Época Lluviosa"]
+
+    try:
+        return _run_query(query, params)
+    except pymysql.MySQLError as db_error:
+        details = {
+            "mysql_error": str(db_error),
+            "desde": desde,
+            "hasta": hasta,
+            "nivel": nivel,
+        }
+        raise AfectacionesServiceError("Database query failed", details=details) from db_error
+
+
+def get_eventos_alto_impacto_por_lluvias(desde, hasta, cantidad=5):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-Detalle`(%s, %s, %s)"
+    params = [desde, hasta, cantidad]
+
+    try:
+        return _run_query(query, params)
+    except pymysql.MySQLError as db_error:
+        details = {
+            "mysql_error": str(db_error),
+            "desde": desde,
+            "hasta": hasta,
+            "cantidad": cantidad,
+        }
+        raise AfectacionesServiceError("Database query failed", details=details) from db_error

@@ -197,6 +197,291 @@ button:disabled {
   margin-bottom: 8px;
 }
 
+.hydrometeorology-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 32%);
+  gap: 18px;
+  align-items: start;
+}
+
+.hydrometeorology-text p {
+  margin: 0 0 7px;
+  color: #24344f;
+  line-height: 1.35;
+}
+
+.hydrometeorology-layout img {
+  display: block;
+  width: 100%;
+  max-height: 440px;
+  object-fit: contain;
+}
+
+.water-bodies-section h3 {
+  margin: 16px 0 6px;
+  color: #265499;
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.water-bodies-section>p {
+  margin: 0 0 8px;
+  color: #475569;
+}
+
+.water-table-block {
+  margin-top: 10px;
+}
+
+.water-table-title {
+  padding: 6px 8px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.water-table-block.overflowed .water-table-title,
+.water-table-block.rising .water-table-title {
+  background: #ef7024;
+}
+
+.water-table-block table {
+  min-width: 900px;
+}
+
+.water-table-block tbody tr td {
+  background: #fff;
+}
+
+.declaration-block {
+  margin-top: 14px;
+}
+
+.declaration-block h3 {
+  margin: 0 0 10px;
+  color: #111827;
+  font-size: 17px;
+  text-decoration: underline;
+}
+
+.declaration-table {
+  min-width: 1000px;
+  table-layout: fixed;
+}
+
+.alert-declaration-table th:nth-child(1),
+.alert-declaration-table td:nth-child(1),
+.alert-declaration-table th:nth-child(2),
+.alert-declaration-table td:nth-child(2),
+.alert-declaration-table th:nth-child(3),
+.alert-declaration-table td:nth-child(3),
+.alert-declaration-table th:nth-child(4),
+.alert-declaration-table td:nth-child(4) {
+  width: 9%;
+}
+
+.alert-declaration-table th:nth-child(5),
+.alert-declaration-table td:nth-child(5) {
+  width: 11%;
+}
+
+.alert-declaration-table th:nth-child(6),
+.alert-declaration-table td:nth-child(6) {
+  width: 8%;
+}
+
+.alert-declaration-table th:nth-child(7),
+.alert-declaration-table td:nth-child(7) {
+  width: 45%;
+  text-align: left;
+}
+
+.emergency-declaration-table th:not(:last-child),
+.emergency-declaration-table td:not(:last-child) {
+  width: 9.4%;
+}
+
+.emergency-declaration-table th:last-child,
+.emergency-declaration-table td:last-child {
+  width: 53%;
+  text-align: left;
+}
+
+.declaration-table tbody td {
+  background: #fff;
+}
+
+.declaration-table td.alert-level-red {
+  background: #f20d12;
+  color: #fff;
+}
+
+.declaration-table td.alert-level-orange {
+  background: #f97316;
+  color: #fff;
+}
+
+.declaration-table td.alert-level-yellow {
+  background: #facc15;
+  color: #111827;
+}
+
+.declaration-note {
+  margin: 18px 0 4px;
+  color: #111827;
+  line-height: 1.45;
+  text-align: justify;
+}
+
+.coe-activated-section {
+  margin-top: 24px;
+  color: #111827;
+}
+
+.coe-section-title {
+  margin: 0 0 4px;
+  font-size: 17px;
+  text-decoration: underline;
+}
+
+.coe-intro {
+  margin: 0 0 12px;
+}
+
+.coe-block {
+  margin: 14px 0 20px 24px;
+}
+
+.coe-block-title,
+.coe-block h4 {
+  margin: 12px 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.coe-block-title::before,
+.coe-block h4::before {
+  content: '-';
+  display: inline-block;
+  margin-right: 16px;
+}
+
+.coe-table-wrap {
+  border: 0;
+}
+
+.coe-table {
+  min-width: 720px;
+  table-layout: fixed;
+}
+
+.coe-table th {
+  background: #052b67;
+  color: #fff;
+}
+
+.coe-table td {
+  background: #fff;
+}
+
+.coe-provincial-wrap {
+  max-width: 760px;
+}
+
+.coe-provincial-table th:nth-child(1),
+.coe-provincial-table td:nth-child(1) {
+  width: 9%;
+}
+
+.coe-provincial-table th:nth-child(2),
+.coe-provincial-table td:nth-child(2) {
+  width: 39%;
+}
+
+.coe-municipal-wrap {
+  max-width: 760px;
+}
+
+.coe-municipal-table th:first-child,
+.coe-municipal-table td:first-child {
+  width: 38%;
+  text-align: left;
+}
+
+.coe-status-active {
+  color: #ef4444;
+}
+
+.coe-municipal-table td.coe-pct-red {
+  background: #f56565;
+}
+
+.coe-municipal-table td.coe-pct-orange {
+  background: #f6ad55;
+}
+
+.coe-municipal-table td.coe-pct-yellow {
+  background: #ffe57a;
+}
+
+.coe-municipal-table td.coe-pct-green {
+  background: #65be79;
+}
+
+.high-impact-section {
+  color: #111827;
+}
+
+.high-impact-intro {
+  margin: 5px 0 10px;
+  font-size: 16px;
+}
+
+.high-impact-zone {
+  margin: 0 0 14px 22px;
+}
+
+.high-impact-zone h3 {
+  margin: 8px 0 4px;
+  color: #0b1f78;
+  font-size: 17px;
+  font-style: italic;
+}
+
+.high-impact-list {
+  margin: 0;
+  padding-left: 28px;
+}
+
+.high-impact-list > li {
+  margin-bottom: 12px;
+  padding-left: 8px;
+}
+
+.high-impact-list > li::marker {
+  color: #174a8b;
+}
+
+.high-impact-list p {
+  margin: 2px 0;
+  line-height: 1.4;
+  white-space: pre-line;
+}
+
+.high-impact-description strong {
+  color: #0b1f78;
+  font-style: italic;
+}
+
+.high-impact-affectations {
+  margin: 3px 0 3px 10px;
+  font-weight: 700;
+}
+
+.high-impact-response {
+  margin-top: 4px;
+}
+
 .table-wrap {
   overflow: auto;
   border: 1px solid #d6dbe8;
@@ -269,5 +554,14 @@ td.pct-very-high {
   .form-grid,
   .summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .hydrometeorology-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .hydrometeorology-layout img {
+    max-width: 420px;
+    margin: 0 auto;
   }
 }

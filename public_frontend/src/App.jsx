@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { exportEventosLluviasPdf } from './utils/pdfReport'
+import { buildMunicipalCoeSummary, coeActivationClass, uniqueActiveCoeRows } from './utils/coeConfig.js'
 
 const API_ENV = import.meta.env.VITE_API_ENV || 'local'
 const API_LOCAL_URL = import.meta.env.VITE_API_LOCAL_URL || 'http://localhost:5000'
@@ -24,7 +25,53 @@ const ENDPOINTS = {
   personasFallecidasLluvias: '/api/public/personas-fallecidas-por-lluvias',
   getEventosporLluviasCategoria: '/api/public/eventos-por-lluvias-km-vias-por-categoria',
   eventosLluviasTotalPorMes: '/api/public/eventos-lluvias-total-por-mes',
+  cuerposHidricosDesbordados: '/api/public/cuerpos-hidricos-desbordados-por-lluvias',
+  cuerposHidricosTendencia: '/api/public/cuerpos-hidricos-tendencia-a-aumentar-por-lluvias',
+  nivelesAlertaLluvias: '/api/public/niveles-alerta-por-lluvias',
+  declaratoriasEmergenciaLluvias: '/api/public/declaratorias-emergencia-por-lluvias',
+  coesActivadosLluvias: '/api/public/coes-activados-por-lluvias',
+  eventosAltoImpactoLluvias: '/api/public/eventos-alto-impacto-por-lluvias',
 }
+
+const HYDROMETEOROLOGY_IMAGE = '/assets/sitrep-template/situacion-hidrometeorologica.png'
+
+const WATER_BODY_COLS = [
+  ['__no__', 'No.'],
+  ['Provincia', 'Provincia'],
+  ['Canton', 'Canton'],
+  ['Parroquia', 'Parroquia'],
+  ['Sector', 'Sector'],
+  ['CuerpoHidrico', 'Nombre de cuerpo hidrico'],
+  ['FechaNovedad', 'Fecha de incremento de nivel'],
+]
+
+const ALERT_DECLARATION_COLS = [
+  ['Ambito', 'Nivel de gobierno'],
+  ['Provincia', 'Provincia'],
+  ['Canton', 'Cantón'],
+  ['Parroquia', 'Parroquia'],
+  ['FechaInicio', 'Fecha declaratoria'],
+  ['NivelAlerta', 'Nivel de alerta'],
+  ['Observacion', 'Descripción'],
+]
+
+const EMERGENCY_DECLARATION_COLS = [
+  ['Ambito', 'Nivel de gobierno'],
+  ['Provincia', 'Provincia'],
+  ['Canton', 'Cantón'],
+  ['Parroquia', 'Parroquia'],
+  ['FechaInicio', 'Fecha declaratoria'],
+  ['Observacion', 'Descripción'],
+]
+
+const COE_PROVINCIAL_COLS = [
+  ['__no__', 'Nro.'], ['Provincia', 'Provincia'], ['FechaInicial', 'Fecha de Activación'], ['Estado', 'Estado'],
+]
+
+const COPAE_COLS = [
+  ['__no__', 'Nro.'], ['Provincia', 'Provincia'], ['Canton', 'Cantón'], ['Parroquia', 'Parroquia'],
+  ['FechaInicial', 'Fecha de Activación'], ['Estado', 'Estado'],
+]
 
 const TIPO_LABELS = {
   lluvias: 'lluvias',
@@ -514,6 +561,50 @@ function formatTableCellValue(key, value) {
   return value
 }
 
+function formatDeclarationDate(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw)
+  if (Number.isNaN(parsed.getTime())) return raw
+  return parsed.toLocaleDateString('es-EC', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).replaceAll('.', '')
+}
+
+function alertLevelClass(value) {
+  const level = String(value ?? '').trim().toLowerCase()
+  if (level.includes('rojo')) return 'alert-level-red'
+  if (level.includes('naranja')) return 'alert-level-orange'
+  if (level.includes('amarillo')) return 'alert-level-yellow'
+  return ''
+}
+
+function splitReportLines(value) {
+  return String(value ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+}
+
+function formatAffectationLine(value) {
+  const [label, ...amountParts] = String(value ?? '').split('=')
+  if (!amountParts.length) return String(value ?? '').trim()
+  const amount = amountParts.join('=').trim()
+  return `${amount} ${label.trim()}`
+}
+
+const GOVERNMENT_LEVEL_ORDER = new Map([
+  ['nacional', 0],
+  ['regional', 1],
+  ['provincial', 2],
+  ['cantonal', 3],
+])
+
+function sortByGovernmentLevel(rows) {
+  return [...rows].sort((left, right) => {
+    const leftLevel = String(left?.Ambito ?? '').trim().toLowerCase()
+    const rightLevel = String(right?.Ambito ?? '').trim().toLowerCase()
+    const levelDifference = (GOVERNMENT_LEVEL_ORDER.get(leftLevel) ?? 4) - (GOVERNMENT_LEVEL_ORDER.get(rightLevel) ?? 4)
+    if (levelDifference !== 0) return levelDifference
+    return String(left?.FechaInicio ?? '').localeCompare(String(right?.FechaInicio ?? ''), 'es')
+  })
+}
+
 function toDateTimeInputValue(date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -562,6 +653,15 @@ function App() {
   const [personasFalleciasItems, setpersonasFalleciasItems] = useState([])
   const [eventosMesItems, setEventosMesItems] = useState([])
   const [viasCategoriaItems, setViasCategoriaItems] = useState([])
+  const [cuerposHidricosDesbordadosItems, setCuerposHidricosDesbordadosItems] = useState([])
+  const [cuerposHidricosTendenciaItems, setCuerposHidricosTendenciaItems] = useState([])
+  const [nivelesAlertaItems, setNivelesAlertaItems] = useState([])
+  const [declaratoriasEmergenciaItems, setDeclaratoriasEmergenciaItems] = useState([])
+  const [coeNacionalItems, setCoeNacionalItems] = useState([])
+  const [coeProvincialItems, setCoeProvincialItems] = useState([])
+  const [coeMunicipalItems, setCoeMunicipalItems] = useState([])
+  const [copaeItems, setCopaeItems] = useState([])
+  const [eventosAltoImpactoItems, setEventosAltoImpactoItems] = useState([])
 
   const buildApiUrl = useCallback((endpointPath, provinciaValue = '') => {
     const base = `${API_BASE_URL}${endpointPath}`
@@ -861,6 +961,52 @@ function App() {
     [section6SNDGIRDRows]
   )
   const shouldShowSection6SNDGIRD = useMemo(() => section6SNDGIRDRows.length > 0 && section6SNDGIRDTotalGeneral > 0, [section6SNDGIRDRows.length, section6SNDGIRDTotalGeneral])
+  const cuerposHidricosDesbordadosRows = useMemo(
+    () => cuerposHidricosDesbordadosItems.map((row, index) => ({
+      __no__: index + 1,
+      Provincia: row?.Provincia ?? '',
+      Canton: row?.Canton ?? '',
+      Parroquia: row?.Parroquia ?? '',
+      Sector: row?.Sector ?? '',
+      CuerpoHidrico: row?.CuerpoHidrico ?? '',
+      FechaNovedad: row?.FechaNovedad ?? '',
+    })),
+    [cuerposHidricosDesbordadosItems]
+  )
+  const cuerposHidricosTendenciaRows = useMemo(
+    () => cuerposHidricosTendenciaItems.map((row, index) => ({
+      __no__: index + 1,
+      Provincia: row?.Provincia ?? '',
+      Canton: row?.Canton ?? '',
+      Parroquia: row?.Parroquia ?? '',
+      Sector: row?.Sector ?? '',
+      CuerpoHidrico: row?.CuerpoHidrico ?? '',
+      FechaNovedad: row?.FechaNovedad ?? '',
+    })),
+    [cuerposHidricosTendenciaItems]
+  )
+  const shouldShowWaterBodies = cuerposHidricosDesbordadosItems.length > 0 || cuerposHidricosTendenciaItems.length > 0
+  const orderedNivelesAlertaItems = useMemo(() => sortByGovernmentLevel(nivelesAlertaItems), [nivelesAlertaItems])
+  const coeNacionalActivo = useMemo(() => uniqueActiveCoeRows(coeNacionalItems, ['TipoCOE'])[0] || null, [coeNacionalItems])
+  const coeProvincialesActivos = useMemo(
+    () => uniqueActiveCoeRows(coeProvincialItems, ['Provincia']).sort((left, right) => String(left?.Provincia || '').localeCompare(String(right?.Provincia || ''), 'es')),
+    [coeProvincialItems]
+  )
+  const coeMunicipalesResumen = useMemo(() => buildMunicipalCoeSummary(coeMunicipalItems), [coeMunicipalItems])
+  const copaeActivos = useMemo(
+    () => uniqueActiveCoeRows(copaeItems, ['Provincia', 'Canton', 'Parroquia']).sort((left, right) => String(left?.Provincia || '').localeCompare(String(right?.Provincia || ''), 'es')),
+    [copaeItems]
+  )
+  const shouldShowCoeSection = Boolean(coeNacionalActivo || coeProvincialesActivos.length || coeMunicipalesResumen.totalActive || copaeActivos.length)
+  const eventosAltoImpactoPorZona = useMemo(() => {
+    const zones = new Map()
+    eventosAltoImpactoItems.forEach((item) => {
+      const zone = String(item?.Zona ?? '').trim() || 'Sin zona'
+      if (!zones.has(zone)) zones.set(zone, [])
+      zones.get(zone).push(item)
+    })
+    return [...zones.entries()]
+  }, [eventosAltoImpactoItems])
 
   useEffect(() => {
     setResponseData(null)
@@ -871,6 +1017,15 @@ function App() {
     setShowRawJson(false)
     setEventosMesItems([])
     setViasCategoriaItems([])
+    setCuerposHidricosDesbordadosItems([])
+    setCuerposHidricosTendenciaItems([])
+    setNivelesAlertaItems([])
+    setDeclaratoriasEmergenciaItems([])
+    setCoeNacionalItems([])
+    setCoeProvincialItems([])
+    setCoeMunicipalItems([])
+    setCopaeItems([])
+    setEventosAltoImpactoItems([])
   }, [tipo])
 
   const onConsultar = async (event) => {
@@ -893,8 +1048,14 @@ function App() {
         const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias, trimmedProvincia)
         const eventosMesUrl = buildApiUrl(ENDPOINTS.eventosLluviasTotalPorMes, trimmedProvincia)
         const viasCategoriaUrl = buildApiUrl(ENDPOINTS.getEventosporLluviasCategoria, trimmedProvincia)
+        const cuerposHidricosDesbordadosUrl = buildApiUrl(ENDPOINTS.cuerposHidricosDesbordados)
+        const cuerposHidricosTendenciaUrl = buildApiUrl(ENDPOINTS.cuerposHidricosTendencia)
+        const nivelesAlertaUrl = buildApiUrl(ENDPOINTS.nivelesAlertaLluvias)
+        const declaratoriasEmergenciaUrl = buildApiUrl(ENDPOINTS.declaratoriasEmergenciaLluvias)
+        const coeUrl = (tipoCoe) => `${buildApiUrl(ENDPOINTS.coesActivadosLluvias)}&tipo=${encodeURIComponent(tipoCoe)}`
+        const eventosAltoImpactoUrl = buildApiUrl(ENDPOINTS.eventosAltoImpactoLluvias)
 
-        const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAlojamientos, responseAlojamientosCerrados, responseAsistenciaSNDGIRD, responsePersonasFallecidas, responseEventosMes, responseViasCategoria] = await Promise.all([
+        const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAlojamientos, responseAlojamientosCerrados, responseAsistenciaSNDGIRD, responsePersonasFallecidas, responseEventosMes, responseViasCategoria, responseCuerposDesbordados, responseCuerposTendencia, responseNivelesAlerta, responseDeclaratoriasEmergencia, responseCoeNacional, responseCoeProvincial, responseCoeMunicipal, responseCopae, responseEventosAltoImpacto] = await Promise.all([
           fetch(requestUrl),
           fetch(tipoLluviasUrl),
           fetch(dpaTotalsUrl),
@@ -904,10 +1065,19 @@ function App() {
           fetch(asistenciaSNDGIRDUrl),
           fetch(personasFallecidasUrl),
           fetch(eventosMesUrl),
-          fetch(viasCategoriaUrl)
+          fetch(viasCategoriaUrl),
+          fetch(cuerposHidricosDesbordadosUrl),
+          fetch(cuerposHidricosTendenciaUrl),
+          fetch(nivelesAlertaUrl),
+          fetch(declaratoriasEmergenciaUrl),
+          fetch(coeUrl('COE-N')),
+          fetch(coeUrl('COE-P')),
+          fetch(coeUrl('COE-M')),
+          fetch(coeUrl('COPAE')),
+          fetch(eventosAltoImpactoUrl)
 
         ])
-        const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAlojamientos, dataAlojamientosCerrados, dataAsistenciaSNDGIRD, dataPersonasFallecidas, dataEventosMes, dataViasCategoria] = await Promise.all([
+        const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAlojamientos, dataAlojamientosCerrados, dataAsistenciaSNDGIRD, dataPersonasFallecidas, dataEventosMes, dataViasCategoria, dataCuerposDesbordados, dataCuerposTendencia, dataNivelesAlerta, dataDeclaratoriasEmergencia, dataCoeNacional, dataCoeProvincial, dataCoeMunicipal, dataCopae, dataEventosAltoImpacto] = await Promise.all([
           responseMain.json(),
           responseTipos.json(),
           responseDpa.json(),
@@ -917,7 +1087,16 @@ function App() {
           responseAsistenciaSNDGIRD.json(),
           responsePersonasFallecidas.json(),
           responseEventosMes.json(),
-          responseViasCategoria.json()
+          responseViasCategoria.json(),
+          responseCuerposDesbordados.json(),
+          responseCuerposTendencia.json(),
+          responseNivelesAlerta.json(),
+          responseDeclaratoriasEmergencia.json(),
+          responseCoeNacional.json(),
+          responseCoeProvincial.json(),
+          responseCoeMunicipal.json(),
+          responseCopae.json(),
+          responseEventosAltoImpacto.json()
         ])
 
         if (!responseMain.ok) throw new Error(dataMain?.error || 'Error consultando API')
@@ -930,6 +1109,15 @@ function App() {
         if (!responsePersonasFallecidas.ok) throw new Error(dataPersonasFallecidas?.error || 'Error consultando personas fallecidas por lluvias')
         if (!responseEventosMes.ok) throw new Error(dataEventosMes?.error || 'Error consultando eventos por lluvias total por mes')
         if (!responseViasCategoria.ok) throw new Error(dataViasCategoria?.error || 'Error consultando km de vias por categoria')
+        if (!responseCuerposDesbordados.ok) throw new Error(dataCuerposDesbordados?.error || 'Error consultando cuerpos hidricos desbordados')
+        if (!responseCuerposTendencia.ok) throw new Error(dataCuerposTendencia?.error || 'Error consultando cuerpos hidricos con tendencia a aumentar')
+        if (!responseNivelesAlerta.ok) throw new Error(dataNivelesAlerta?.error || 'Error consultando declaratorias de niveles de alerta')
+        if (!responseDeclaratoriasEmergencia.ok) throw new Error(dataDeclaratoriasEmergencia?.error || 'Error consultando declaratorias de emergencia')
+        if (!responseCoeNacional.ok) throw new Error(dataCoeNacional?.error || 'Error consultando COE nacional')
+        if (!responseCoeProvincial.ok) throw new Error(dataCoeProvincial?.error || 'Error consultando COE provinciales')
+        if (!responseCoeMunicipal.ok) throw new Error(dataCoeMunicipal?.error || 'Error consultando COE cantonales')
+        if (!responseCopae.ok) throw new Error(dataCopae?.error || 'Error consultando COPAE parroquiales')
+        if (!responseEventosAltoImpacto.ok) throw new Error(dataEventosAltoImpacto?.error || 'Error consultando eventos adversos de alto impacto')
 
         setResponseData(dataMain)
         setTipoLluviasItems(dataTipos?.items || [])
@@ -941,6 +1129,15 @@ function App() {
         setpersonasFalleciasItems(dataPersonasFallecidas?.items || []) // Limpiar personas fallecidas al consultar eventos por lluvias
         setEventosMesItems(dataEventosMes?.items || [])
         setViasCategoriaItems(dataViasCategoria?.items || [])
+        setCuerposHidricosDesbordadosItems(dataCuerposDesbordados?.items || [])
+        setCuerposHidricosTendenciaItems(dataCuerposTendencia?.items || [])
+        setNivelesAlertaItems(dataNivelesAlerta?.items || [])
+        setDeclaratoriasEmergenciaItems(dataDeclaratoriasEmergencia?.items || [])
+        setCoeNacionalItems(dataCoeNacional?.items || [])
+        setCoeProvincialItems(dataCoeProvincial?.items || [])
+        setCoeMunicipalItems(dataCoeMunicipal?.items || [])
+        setCopaeItems(dataCopae?.items || [])
+        setEventosAltoImpactoItems(dataEventosAltoImpacto?.items || [])
       } else {
         const response = await fetch(requestUrl)
         const data = await response.json()
@@ -955,6 +1152,15 @@ function App() {
         setpersonasFalleciasItems([])
         setEventosMesItems([])
         setViasCategoriaItems([])
+        setCuerposHidricosDesbordadosItems([])
+        setCuerposHidricosTendenciaItems([])
+        setNivelesAlertaItems([])
+        setDeclaratoriasEmergenciaItems([])
+        setCoeNacionalItems([])
+        setCoeProvincialItems([])
+        setCoeMunicipalItems([])
+        setCopaeItems([])
+        setEventosAltoImpactoItems([])
       }
     } catch (err) {
       setResponseData(null)
@@ -967,6 +1173,15 @@ function App() {
       setpersonasFalleciasItems([])
       setEventosMesItems([])
       setViasCategoriaItems([])
+      setCuerposHidricosDesbordadosItems([])
+      setCuerposHidricosTendenciaItems([])
+      setNivelesAlertaItems([])
+      setDeclaratoriasEmergenciaItems([])
+      setCoeNacionalItems([])
+      setCoeProvincialItems([])
+      setCoeMunicipalItems([])
+      setCopaeItems([])
+      setEventosAltoImpactoItems([])
       setError(err.message)
     } finally {
       setLoading(false)
@@ -1000,8 +1215,14 @@ function App() {
       const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias, trimmedProvincia)
       const eventosMesUrl = buildApiUrl(ENDPOINTS.eventosLluviasTotalPorMes, trimmedProvincia)
       const viasCategoriaUrl = buildApiUrl(ENDPOINTS.getEventosporLluviasCategoria, trimmedProvincia)
+      const cuerposHidricosDesbordadosUrl = buildApiUrl(ENDPOINTS.cuerposHidricosDesbordados)
+      const cuerposHidricosTendenciaUrl = buildApiUrl(ENDPOINTS.cuerposHidricosTendencia)
+      const nivelesAlertaUrl = buildApiUrl(ENDPOINTS.nivelesAlertaLluvias)
+      const declaratoriasEmergenciaUrl = buildApiUrl(ENDPOINTS.declaratoriasEmergenciaLluvias)
+      const coeUrl = (tipoCoe) => `${buildApiUrl(ENDPOINTS.coesActivadosLluvias)}&tipo=${encodeURIComponent(tipoCoe)}`
+      const eventosAltoImpactoUrl = buildApiUrl(ENDPOINTS.eventosAltoImpactoLluvias)
 
-      const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAsistenciaSNDGIRD, responseAlojamientos, responseAlojamientosCerrados, responsePersonasFallecidas, responseEventosMes, responseViasCategoria] = await Promise.all([
+      const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAsistenciaSNDGIRD, responseAlojamientos, responseAlojamientosCerrados, responsePersonasFallecidas, responseEventosMes, responseViasCategoria, responseCuerposDesbordados, responseCuerposTendencia, responseNivelesAlerta, responseDeclaratoriasEmergencia, responseCoeNacional, responseCoeProvincial, responseCoeMunicipal, responseCopae, responseEventosAltoImpacto] = await Promise.all([
         fetch(mainUrl),
         fetch(tipoLluviasUrl),
         fetch(dpaTotalsUrl),
@@ -1011,9 +1232,18 @@ function App() {
         fetch(alojamientosCerradosUrl),
         fetch(personasFallecidasUrl),
         fetch(eventosMesUrl),
-        fetch(viasCategoriaUrl)
+        fetch(viasCategoriaUrl),
+        fetch(cuerposHidricosDesbordadosUrl),
+        fetch(cuerposHidricosTendenciaUrl),
+        fetch(nivelesAlertaUrl),
+        fetch(declaratoriasEmergenciaUrl),
+        fetch(coeUrl('COE-N')),
+        fetch(coeUrl('COE-P')),
+        fetch(coeUrl('COE-M')),
+        fetch(coeUrl('COPAE')),
+        fetch(eventosAltoImpactoUrl)
       ])
-      const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAsistenciaSNDGIRD, dataAlojamientos, dataAlojamientosCerrados, dataPersonasFallecidas, dataEventosMes, dataViasCategoria] = await Promise.all([
+      const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAsistenciaSNDGIRD, dataAlojamientos, dataAlojamientosCerrados, dataPersonasFallecidas, dataEventosMes, dataViasCategoria, dataCuerposDesbordados, dataCuerposTendencia, dataNivelesAlerta, dataDeclaratoriasEmergencia, dataCoeNacional, dataCoeProvincial, dataCoeMunicipal, dataCopae, dataEventosAltoImpacto] = await Promise.all([
         responseMain.json(),
         responseTipos.json(),
         responseDpa.json(),
@@ -1023,7 +1253,16 @@ function App() {
         responseAlojamientosCerrados.json(),
         responsePersonasFallecidas.json(),
         responseEventosMes.json(),
-        responseViasCategoria.json()
+        responseViasCategoria.json(),
+        responseCuerposDesbordados.json(),
+        responseCuerposTendencia.json(),
+        responseNivelesAlerta.json(),
+        responseDeclaratoriasEmergencia.json(),
+        responseCoeNacional.json(),
+        responseCoeProvincial.json(),
+        responseCoeMunicipal.json(),
+        responseCopae.json(),
+        responseEventosAltoImpacto.json()
       ])
       if (!responseMain.ok) throw new Error(dataMain?.error || 'Error consultando eventos por lluvias')
       if (!responseTipos.ok) throw new Error(dataTipos?.error || 'Error consultando eventos por tipo de lluvias')
@@ -1036,6 +1275,16 @@ function App() {
       if (!responseEventosMes.ok) throw new Error(dataEventosMes?.error || 'Error consultando eventos por lluvias total por mes')
       if (!responseViasCategoria.ok) throw new Error(dataViasCategoria?.error || 'Error consultando km de vías por categoría')
 
+      if (!responseCuerposDesbordados.ok) throw new Error(dataCuerposDesbordados?.error || 'Error consultando cuerpos hidricos desbordados')
+      if (!responseCuerposTendencia.ok) throw new Error(dataCuerposTendencia?.error || 'Error consultando cuerpos hidricos con tendencia a aumentar')
+      if (!responseNivelesAlerta.ok) throw new Error(dataNivelesAlerta?.error || 'Error consultando declaratorias de niveles de alerta')
+      if (!responseDeclaratoriasEmergencia.ok) throw new Error(dataDeclaratoriasEmergencia?.error || 'Error consultando declaratorias de emergencia')
+      if (!responseCoeNacional.ok) throw new Error(dataCoeNacional?.error || 'Error consultando COE nacional')
+      if (!responseCoeProvincial.ok) throw new Error(dataCoeProvincial?.error || 'Error consultando COE provinciales')
+      if (!responseCoeMunicipal.ok) throw new Error(dataCoeMunicipal?.error || 'Error consultando COE cantonales')
+      if (!responseCopae.ok) throw new Error(dataCopae?.error || 'Error consultando COPAE parroquiales')
+      if (!responseEventosAltoImpacto.ok) throw new Error(dataEventosAltoImpacto?.error || 'Error consultando eventos adversos de alto impacto')
+
       await exportEventosLluviasPdf({
         items: dataMain?.items || [],
         tipoLluviasItems: dataTipos?.items || [],
@@ -1045,6 +1294,15 @@ function App() {
         alojamientosCerradosItems: dataAlojamientosCerrados?.items || [],
         eventosMesItems: dataEventosMes?.items || [],
         viasCategoriaItems: dataViasCategoria?.items || [],
+        waterBodiesOverflowed: dataCuerposDesbordados?.items || [],
+        waterBodiesRising: dataCuerposTendencia?.items || [],
+        alertDeclarations: dataNivelesAlerta?.items || [],
+        emergencyDeclarations: dataDeclaratoriasEmergencia?.items || [],
+        nationalCoeItems: dataCoeNacional?.items || [],
+        provincialCoeItems: dataCoeProvincial?.items || [],
+        municipalCoeItems: dataCoeMunicipal?.items || [],
+        parishCoeItems: dataCopae?.items || [],
+        highImpactEvents: dataEventosAltoImpacto?.items || [],
         dpaTotals: (dataDpa?.items || [])[0] || null,
         provinciaId: provinciaId.trim() || null,
         personasFallecidasItems: dataPersonasFallecidas?.items || [],
@@ -1126,6 +1384,59 @@ function App() {
               <li>{puntosImportantes.line1}</li>
               <li>{puntosImportantes.line2}</li>
             </ul>
+
+            {tipo === 'lluvias' && (
+              <>
+                <div className="block-title pt-4">2. Situación Hidrometeorológica actual</div>
+                <div className="hydrometeorology-layout">
+                  <div className="hydrometeorology-text">
+                    <p>Según el boletín meteorológico estatus <strong>advertencia Nro. 77, emitido</strong> por el INAMHI, amenaza: <strong>LLUVIAS, TORMENTAS ELÉCTRICAS Y RÁFAGAS DE VIENTO</strong>, vigencia desde <strong>15H00 del 01 hasta las 10H00 del 05 de octubre de 2026.</strong></p>
+                    <p>Se presentarán precipitaciones de moderada y ocasional fuerte intensidad con tormentas y ráfagas de viento moderado en la región Litoral, con mayor énfasis en la zona centro y estribación de cordillera occidental.</p>
+                    <p><strong>Región Litoral:</strong> Mayor intensidad en Esmeraldas, Santo Domingo, Los Ríos, Guayas, ciertas zonas de Manabí y El Oro.</p>
+                    <p><strong>Región Interandina:</strong> Mayor intensidad en Pichincha y zonas occidentales de: Imbabura, Cotopaxi, Azuay y Loja.</p>
+                    <p><strong>Región Amazónica:</strong> Eventos ocasionales de moderadas y puntual fuerte intensidad en Sucumbíos, Napo, Pastaza y Morona Santiago.</p>
+                  </div>
+                  <img src={HYDROMETEOROLOGY_IMAGE} alt="Mapa de estimación de precipitación pronosticada" />
+                </div>
+
+                {shouldShowWaterBodies && (
+                  <div className="water-bodies-section">
+                    <h3>ESTADO DE CUERPOS DE AGUA.</h3>
+                    <p>
+                      Al cierre de este informe, las Unidades de Monitoreo de la SNGR han identificado: <strong>{formatInt(cuerposHidricosTendenciaItems.length)} cuerpos hídricos con tendencia a subir de nivel</strong> y <strong>{formatInt(cuerposHidricosDesbordadosItems.length)} cuerpos hídricos desbordados.</strong>
+                    </p>
+
+                    {cuerposHidricosTendenciaRows.length > 0 && (
+                      <div className="water-table-block rising">
+                        <div className="water-table-title">{formatInt(cuerposHidricosTendenciaRows.length)} CUERPOS HÍDRICOS CON TENDENCIA A SUBIR DE NIVEL</div>
+                        <div className="table-wrap">
+                          <table>
+                            <thead><tr>{WATER_BODY_COLS.map(([, label]) => <th key={`tendencia-${label}`}>{label}</th>)}</tr></thead>
+                            <tbody>{cuerposHidricosTendenciaRows.map((row, rowIndex) => (
+                              <tr key={`tendencia-${rowIndex}`}>{WATER_BODY_COLS.map(([key]) => <td key={`tendencia-${rowIndex}-${key}`}>{formatTableCellValue(key, row[key]) ?? ''}</td>)}</tr>
+                            ))}</tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {cuerposHidricosDesbordadosRows.length > 0 && (
+                      <div className="water-table-block overflowed">
+                        <div className="water-table-title">{formatInt(cuerposHidricosDesbordadosRows.length)} CUERPOS HÍDRICOS DESBORDADOS</div>
+                        <div className="table-wrap">
+                          <table>
+                            <thead><tr>{WATER_BODY_COLS.map(([, label]) => <th key={`desbordado-${label}`}>{label}</th>)}</tr></thead>
+                            <tbody>{cuerposHidricosDesbordadosRows.map((row, rowIndex) => (
+                              <tr key={`desbordado-${rowIndex}`}>{WATER_BODY_COLS.map(([key]) => <td key={`desbordado-${rowIndex}-${key}`}>{formatTableCellValue(key, row[key]) ?? ''}</td>)}</tr>
+                            ))}</tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
 
             <div className="block-title pt-4">3. Eventos Adversos y Afectaciones por Provincia</div>
             {tipo === 'lluvias' ? (
@@ -1402,6 +1713,171 @@ function App() {
                 </table>
               </div>
             </>
+
+            {tipo === 'lluvias' && (nivelesAlertaItems.length > 0 || declaratoriasEmergenciaItems.length > 0 || shouldShowCoeSection) && (
+              <>
+                <div className="block-title pt-4">7. Declaratorias emitidas y COE activados</div>
+
+                {orderedNivelesAlertaItems.length > 0 && (
+                  <div className="declaration-block">
+                    <h3>Declaratorias de niveles de alertas en todo el país:</h3>
+                    <div className="table-wrap">
+                      <table className="declaration-table alert-declaration-table">
+                        <thead><tr>{ALERT_DECLARATION_COLS.map(([, label]) => <th key={`alerta-${label}`}>{label}</th>)}</tr></thead>
+                        <tbody>{orderedNivelesAlertaItems.map((row, rowIndex) => (
+                          <tr key={`alerta-${rowIndex}`}>
+                            {ALERT_DECLARATION_COLS.map(([key]) => (
+                              <td key={`alerta-${rowIndex}-${key}`} className={key === 'NivelAlerta' ? alertLevelClass(row?.[key]) : ''}>
+                                {key === 'FechaInicio' ? formatDeclarationDate(row?.[key]) : (row?.[key] ?? '--')}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {declaratoriasEmergenciaItems.length > 0 && (
+                  <div className="declaration-block">
+                    <h3>Declaratorias de emergencia en todo el país:</h3>
+                    <div className="table-wrap">
+                      <table className="declaration-table emergency-declaration-table">
+                        <thead><tr>{EMERGENCY_DECLARATION_COLS.map(([, label]) => <th key={`emergencia-${label}`}>{label}</th>)}</tr></thead>
+                        <tbody>{declaratoriasEmergenciaItems.map((row, rowIndex) => (
+                          <tr key={`emergencia-${rowIndex}`}>
+                            {EMERGENCY_DECLARATION_COLS.map(([key]) => (
+                              <td key={`emergencia-${rowIndex}-${key}`}>
+                                {key === 'FechaInicio' ? formatDeclarationDate(row?.[key]) : (row?.[key] ?? '--')}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                <p className="declaration-note">
+                  Además, mediante <strong>Decreto ejecutivo Nro. 485, firmado el 31 de agosto de 2026, por el presidente del Ecuador Daniel Noboa Azin, resuelve declarar</strong> como prioridad nacional la continuidad y el fortalecimiento de las acciones de prevención y preparación frente a los posibles efectos del fenómeno El Niño en el territorio nacional, así como la ejecución de las acciones de respuesta y recuperación que correspondan, en función de la evolución del evento y los escenarios de riesgos, en el marco de la Alerta Roja declarada en todo el territorio nacional, mediante Resolución No. SNGR-238-2026, del 29 de agosto de 2026.
+                </p>
+
+                {shouldShowCoeSection && (
+                  <div className="coe-activated-section">
+                    <h3 className="coe-section-title">Comités de Operaciones de Emergencias (COE) activados:</h3>
+                    <p className="coe-intro">
+                      Desde el {formatDeclarationDate(desde)} hasta el {formatDeclarationDate(hasta)} se han activado los siguientes COE:
+                    </p>
+
+                    {coeNacionalActivo && (
+                      <p className="coe-block-title">COE Nacional activo desde el {formatDeclarationDate(coeNacionalActivo.FechaInicial)}.</p>
+                    )}
+
+                    {coeProvincialesActivos.length > 0 && (
+                      <div className="coe-block">
+                        <h4>{formatInt(coeProvincialesActivos.length)} COE provinciales:</h4>
+                        <div className="table-wrap coe-table-wrap coe-provincial-wrap">
+                          <table className="coe-table coe-provincial-table">
+                            <thead><tr>{COE_PROVINCIAL_COLS.map(([, label]) => <th key={`coe-p-${label}`}>{label}</th>)}</tr></thead>
+                            <tbody>{coeProvincialesActivos.map((row, rowIndex) => (
+                              <tr key={`coe-p-${rowIndex}`}>
+                                {COE_PROVINCIAL_COLS.map(([key]) => (
+                                  <td key={`coe-p-${rowIndex}-${key}`} className={key === 'Estado' ? 'coe-status-active' : ''}>
+                                    {key === '__no__' ? rowIndex + 1 : key === 'FechaInicial' ? formatDeclarationDate(row?.[key]) : (row?.[key] ?? '--')}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}</tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {coeMunicipalesResumen.totalActive > 0 && (
+                      <div className="coe-block">
+                        <h4>
+                          A nivel nacional, se registran {formatInt(coeMunicipalesResumen.totalActive)} COE Cantonales activos de un total de {formatInt(coeMunicipalesResumen.totalCantons)} cantones, lo que representa una activación global del {coeMunicipalesResumen.globalPercentage}%.
+                        </h4>
+                        <div className="table-wrap coe-table-wrap coe-municipal-wrap">
+                          <table className="coe-table coe-municipal-table">
+                            <thead><tr><th>Provincia</th><th>Total de Cantones</th><th>Nro. de COE Cantonales Activos</th><th>% de COE cantonales activos</th></tr></thead>
+                            <tbody>
+                              {coeMunicipalesResumen.rows.map((row) => (
+                                <tr key={`coe-m-${row.Provincia}`}>
+                                  <td>{row.Provincia}</td>
+                                  <td>{formatInt(row.TotalCantones)}</td>
+                                  <td>{formatInt(row.CantonesActivos)}</td>
+                                  <td className={coeActivationClass(row.PorcentajeActivacion)}>{row.PorcentajeActivacion}%</td>
+                                </tr>
+                              ))}
+                              <tr className="total-row">
+                                <td>Total general</td>
+                                <td>{formatInt(coeMunicipalesResumen.totalCantons)}</td>
+                                <td>{formatInt(coeMunicipalesResumen.totalActive)}</td>
+                                <td>{coeMunicipalesResumen.globalPercentage}%</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {copaeActivos.length > 0 && (
+                      <div className="coe-block">
+                        <h4>{formatInt(copaeActivos.length)} COE parroquiales:</h4>
+                        <div className="table-wrap coe-table-wrap">
+                          <table className="coe-table copae-table">
+                            <thead><tr>{COPAE_COLS.map(([, label]) => <th key={`copae-${label}`}>{label}</th>)}</tr></thead>
+                            <tbody>{copaeActivos.map((row, rowIndex) => (
+                              <tr key={`copae-${rowIndex}`}>
+                                {COPAE_COLS.map(([key]) => (
+                                  <td key={`copae-${rowIndex}-${key}`} className={key === 'Estado' ? 'coe-status-active' : ''}>
+                                    {key === '__no__' ? rowIndex + 1 : key === 'FechaInicial' ? formatDeclarationDate(row?.[key]) : (row?.[key] ?? '--')}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}</tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {tipo === 'lluvias' && eventosAltoImpactoItems.length > 0 && (
+              <div className="high-impact-section">
+                <div className="block-title pt-4">8. Eventos adversos de alto impacto</div>
+                <p className="high-impact-intro">A continuación, se detallan los eventos adversos relevantes de los últimos días:</p>
+                {eventosAltoImpactoPorZona.map(([zone, zoneItems]) => (
+                  <div className="high-impact-zone" key={`zona-${zone}`}>
+                    <h3>Zona {zone}</h3>
+                    <ul className="high-impact-list">
+                      {zoneItems.map((item, itemIndex) => {
+                        const affectations = splitReportLines(item?.Afectaciones).map(formatAffectationLine)
+                        const responseActions = String(item?.CoordinacionYRespuesta ?? '').trim()
+                        return (
+                          <li key={`impacto-${item?.EventoAdversoID ?? `${zone}-${itemIndex}`}`}>
+                            <p className="high-impact-description">
+                              <strong>{item?.Ubicacion || 'Ubicación no registrada'}.</strong>{' '}
+                              {String(item?.Antecedentes ?? '').trim()}
+                            </p>
+                            {String(item?.SituacionActual ?? '').trim() && <p>{String(item.SituacionActual).trim()}</p>}
+                            {affectations.length > 0 && (
+                              <div className="high-impact-affectations">
+                                {affectations.map((line, lineIndex) => <p key={`afectacion-${lineIndex}`}>- {line}.</p>)}
+                              </div>
+                            )}
+                            {responseActions && <p className="high-impact-response">{responseActions}</p>}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         )}
 

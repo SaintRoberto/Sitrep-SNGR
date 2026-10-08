@@ -1,5 +1,6 @@
 import jsPDFPackage from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { buildMunicipalCoeSummary, uniqueActiveCoeRows } from './coeConfig.js'
 
 const JsPDF = jsPDFPackage.jsPDF || jsPDFPackage
 
@@ -15,9 +16,47 @@ PAGE.contentWidth = PAGE.width - PAGE.left - PAGE.right
 
 const TEMPLATE_FILES = {
   headerLogo: 'republica-ecuador.png', headerBand: 'franja-superior.png', footer: 'footer-institucional.png',
+  hydrometeorology: 'situacion-hidrometeorologica.png',
   fontRegular: 'BarlowCondensed-Regular.ttf', fontBold: 'BarlowCondensed-SemiBold.ttf',
   fontItalic: 'BarlowCondensed-LightItalic.ttf',
 }
+
+const HYDROMETEOROLOGY_TEXT = [
+  'Según el boletín meteorológico estatus advertencia Nro. 77, emitido por el INAMHI, amenaza: LLUVIAS, TORMENTAS ELÉCTRICAS Y RÁFAGAS DE VIENTO, vigencia desde 15H00 del 01 hasta las 10H00 del 05 de octubre de 2026.',
+  'Se presentarán precipitaciones de moderada y ocasional fuerte intensidad con tormentas y ráfagas de viento moderado en la región Litoral, con mayor énfasis en la zona centro y estribación de cordillera occidental.',
+  'Región Litoral: Mayor intensidad en Esmeraldas, Santo Domingo, Los Ríos, Guayas, ciertas zonas de Manabí y El Oro.',
+  'Región Interandina: Mayor intensidad en Pichincha y zonas occidentales de: Imbabura, Cotopaxi, Azuay y Loja.',
+  'Región Amazónica: Eventos ocasionales de moderadas y puntual fuerte intensidad en Sucumbíos, Napo, Pastaza y Morona Santiago.',
+].join('\n')
+
+const WATER_BODY_COLUMNS = [
+  { key: '__no__', label: 'No.', width: 7 },
+  { key: 'Provincia', label: 'Provincia', width: 25 },
+  { key: 'Canton', label: 'Canton', width: 24 },
+  { key: 'Parroquia', label: 'Parroquia', width: 30 },
+  { key: 'Sector', label: 'Sector', width: 25 },
+  { key: 'CuerpoHidrico', label: 'Nombre de cuerpo hidrico', width: 31 },
+  { key: 'FechaNovedad', label: 'Fecha de incremento de nivel', width: 30 },
+]
+
+const ALERT_DECLARATION_COLUMNS = [
+  { key: 'Ambito', label: 'Nivel de gobierno', width: 14 },
+  { key: 'Provincia', label: 'Provincia', width: 15 },
+  { key: 'Canton', label: 'Cantón', width: 15 },
+  { key: 'Parroquia', label: 'Parroquia', width: 15 },
+  { key: 'FechaInicio', label: 'Fecha declaratoria', width: 18 },
+  { key: 'NivelAlerta', label: 'Nivel de alerta', width: 10 },
+  { key: 'Observacion', label: 'Descripción', width: 85 },
+]
+
+const EMERGENCY_DECLARATION_COLUMNS = [
+  { key: 'Ambito', label: 'Nivel de gobierno', width: 14 },
+  { key: 'Provincia', label: 'Provincia', width: 16 },
+  { key: 'Canton', label: 'Cantón', width: 17 },
+  { key: 'Parroquia', label: 'Parroquia', width: 15 },
+  { key: 'FechaInicio', label: 'Fecha declaratoria', width: 18 },
+  { key: 'Observacion', label: 'Descripción', width: 92 },
+]
 
 const EVENT_TYPES = [
   ['Inundacion', 'Inundación'], ['Deslizamiento', 'Deslizamiento'], ['Lluvias_Intensas', 'Lluvias intensas'],
@@ -335,23 +374,71 @@ function renderAffectationLevel(doc, currentY, level) {
 
 function renderHydrometeorology(doc, currentY, data) {
   if (!data?.text) return currentY
+  currentY = ensurePageSpace(doc, currentY, 72)
   currentY = renderSectionTitle(doc, currentY, '2', 'Situación Hidrometeorológica actual')
-  const imageWidth = data.image ? 48 : 0
-  font(doc, 'normal', 8.5)
+  const imageWidth = data.image ? (data.imageWidth || 43) : 0
+  font(doc, 'normal', 7.7)
   const startY = currentY
-  currentY = wrapped(doc, data.text, PAGE.left, currentY, PAGE.contentWidth - imageWidth - (imageWidth ? 4 : 0), 4)
+  currentY = wrapped(doc, data.text, PAGE.left, currentY, PAGE.contentWidth - imageWidth - (imageWidth ? 5 : 0), 3.55)
   if (data.image) {
-    const imageHeight = data.imageHeight || 50
-    doc.addImage(data.image, 'PNG', PAGE.width - PAGE.right - imageWidth, startY - 3, imageWidth, imageHeight)
+    const imageHeight = data.imageHeight || 61.6
+    doc.addImage(data.image, 'PNG', PAGE.width - PAGE.right - imageWidth, startY, imageWidth, imageHeight)
     currentY = Math.max(currentY, startY + imageHeight)
   }
   return currentY + 3
 }
 
-function renderWaterBodies(doc, currentY, rows) {
-  if (!rows?.length) return currentY
-  currentY = renderSectionTitle(doc, currentY, '2.1', 'Estado de cuerpos de agua')
-  return renderGenericTable(doc, currentY, rows, { fontSize: 7, vertical: false })
+function renderWaterBodyTable(doc, currentY, rows, title, titleColor) {
+  if (!rows.length) return currentY
+  currentY = ensurePageSpace(doc, currentY, 32)
+  doc.setFillColor(...titleColor)
+  doc.rect(PAGE.left, currentY, PAGE.contentWidth, 5.2, 'F')
+  font(doc, 'bold', 6.3, C.white)
+  doc.text(title, PAGE.left + 2, currentY + 3.6)
+  currentY += 5.2
+
+  const columns = WATER_BODY_COLUMNS
+  const body = rows.map((row, index) => columns.map((column) => column.key === '__no__' ? index + 1 : String(row?.[column.key] ?? '')))
+  const columnStyles = Object.fromEntries(columns.map((column, index) => [index, {
+    cellWidth: column.width,
+    ...(column.key === 'Provincia' ? { halign: 'left' } : {}),
+  }]))
+
+  autoTable(doc, {
+    startY: currentY,
+    head: [columns.map((column) => column.label)],
+    body,
+    theme: 'grid',
+    tableWidth: PAGE.contentWidth,
+    margin: { left: PAGE.left, right: PAGE.right, top: PAGE.top, bottom: PAGE.height - PAGE.bottom },
+    styles: { font: 'BarlowCondensed', fontSize: 5.8, cellPadding: 0.55, halign: 'center', valign: 'middle', lineWidth: 0.1, lineColor: C.line },
+    headStyles: { fillColor: [252, 232, 218], textColor: C.black, fontStyle: 'bold', minCellHeight: 7 },
+    bodyStyles: { fillColor: C.white },
+    columnStyles,
+    showHead: 'everyPage',
+    rowPageBreak: 'avoid',
+  })
+  return doc.lastAutoTable.finalY + 3
+}
+
+function renderWaterBodies(doc, currentY, overflowedRows, risingRows, metadata) {
+  if (!overflowedRows.length && !risingRows.length) return currentY
+  currentY = ensurePageSpace(doc, currentY, 18)
+  font(doc, 'normal', 10.5, C.blue)
+  doc.text('ESTADO DE CUERPOS DE AGUA.', PAGE.left, currentY)
+  currentY += 5
+  font(doc, 'normal', 7.7, C.black)
+  currentY = wrapped(
+    doc,
+    `Al cierre de este informe, las Unidades de Monitoreo de la SNGR han identificado: ${fmt(risingRows.length)} cuerpos hídricos con tendencia a subir de nivel y ${fmt(overflowedRows.length)} cuerpos hídricos desbordados.`,
+    PAGE.left,
+    currentY,
+    PAGE.contentWidth,
+    3.6,
+  ) + 1.5
+  currentY = renderWaterBodyTable(doc, currentY, risingRows, `${fmt(risingRows.length)} CUERPOS HÍDRICOS CON TENDENCIA A SUBIR DE NIVEL`, C.orange)
+  currentY = renderWaterBodyTable(doc, currentY, overflowedRows, `${fmt(overflowedRows.length)} CUERPOS HÍDRICOS DESBORDADOS`, C.orange)
+  return sourceLine(doc, currentY, metadata) + 2
 }
 
 function heat(ratio) {
@@ -751,10 +838,333 @@ function renderAssistance(doc, currentY, sngr, sndgird, metadata) {
   return currentY
 }
 
+function declarationDate(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw)
+  if (Number.isNaN(parsed.getTime())) return raw
+  return parsed.toLocaleDateString('es-EC', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).replaceAll('.', '')
+}
+
+function alertLevelColor(value) {
+  const level = String(value ?? '').trim().toLowerCase()
+  if (level.includes('rojo')) return [242, 13, 18]
+  if (level.includes('naranja')) return C.orange
+  if (level.includes('amarillo')) return C.yellow
+  return null
+}
+
+function governmentLevelRank(value) {
+  const order = { nacional: 0, regional: 1, provincial: 2, cantonal: 3 }
+  return order[String(value ?? '').trim().toLowerCase()] ?? 4
+}
+
+function sortDeclarationsByGovernmentLevel(items) {
+  return [...items].sort((left, right) => {
+    const levelDifference = governmentLevelRank(left?.Ambito) - governmentLevelRank(right?.Ambito)
+    if (levelDifference !== 0) return levelDifference
+    return String(left?.FechaInicio ?? '').localeCompare(String(right?.FechaInicio ?? ''), 'es')
+  })
+}
+
+function renderRichParagraph(doc, currentY, segments, options = {}) {
+  const left = options.left || PAGE.left
+  const width = options.width || PAGE.contentWidth
+  const size = options.fontSize || 8.2
+  const lineHeight = options.lineHeight || 4
+  currentY = ensurePageSpace(doc, currentY, options.estimatedHeight || 32)
+  let x = left
+  let y = currentY
+
+  segments.forEach((segment) => {
+    const words = String(segment.text || '').trim().split(/\s+/).filter(Boolean)
+    words.forEach((word) => {
+      font(doc, segment.bold ? 'bold' : 'normal', size, C.black)
+      let displayed = x === left ? word : ` ${word}`
+      let wordWidth = doc.getTextWidth(displayed)
+      if (x + wordWidth > left + width) {
+        y += lineHeight
+        x = left
+        displayed = word
+        wordWidth = doc.getTextWidth(displayed)
+      }
+      doc.text(displayed, x, y)
+      x += wordWidth
+    })
+  })
+  return y + lineHeight + 2
+}
+
+function renderDeclarationTable(doc, currentY, title, items, columns, colorAlerts = false) {
+  if (!items.length) return currentY
+  currentY = ensurePageSpace(doc, currentY, 28)
+  font(doc, 'bold', 9.4, C.black)
+  doc.text(title, PAGE.left + 2, currentY)
+  doc.setDrawColor(...C.black)
+  doc.setLineWidth(0.2)
+  doc.line(PAGE.left + 2, currentY + 0.8, PAGE.left + 2 + doc.getTextWidth(title), currentY + 0.8)
+  currentY += 7
+
+  const body = items.map((row) => columns.map((column) => (
+    column.key === 'FechaInicio' ? declarationDate(row?.[column.key]) : String(row?.[column.key] ?? '--')
+  )))
+  const columnStyles = Object.fromEntries(columns.map((column, index) => [index, {
+    cellWidth: column.width,
+    ...(column.key === 'Observacion' ? { halign: 'left' } : {}),
+  }]))
+
+  autoTable(doc, {
+    startY: currentY,
+    head: [columns.map((column) => column.label)],
+    body,
+    theme: 'grid',
+    tableWidth: PAGE.contentWidth,
+    margin: { left: PAGE.left, right: PAGE.right, top: PAGE.top, bottom: PAGE.height - PAGE.bottom },
+    styles: { font: 'BarlowCondensed', fontSize: 6.2, cellPadding: 0.75, halign: 'center', valign: 'middle', lineWidth: 0.12, lineColor: C.line },
+    headStyles: { fillColor: C.darkNavy, textColor: C.white, fontStyle: 'bold', minCellHeight: 9 },
+    bodyStyles: { fillColor: C.white },
+    columnStyles,
+    showHead: 'everyPage',
+    rowPageBreak: 'avoid',
+    didParseCell: ({ cell, column, row, section }) => {
+      if (!colorAlerts || section !== 'body' || columns[column.index]?.key !== 'NivelAlerta') return
+      const fillColor = alertLevelColor(items[row.index]?.NivelAlerta)
+      if (fillColor) {
+        cell.styles.fillColor = fillColor
+        cell.styles.textColor = String(items[row.index]?.NivelAlerta || '').toLowerCase().includes('amarillo') ? C.black : C.white
+      }
+    },
+  })
+  return doc.lastAutoTable.finalY + 7
+}
+
+function coePercentageColor(value) {
+  const percentage = Number(value) || 0
+  if (percentage === 0) return C.red
+  if (percentage <= 50) return [246, 173, 85]
+  if (percentage < 80) return C.yellow
+  return C.green
+}
+
+function renderCoeSubtitle(doc, currentY, title) {
+  currentY = ensurePageSpace(doc, currentY, 10)
+  font(doc, 'bold', 8.2, C.black)
+  doc.text(`-  ${title}`, PAGE.left + 4, currentY)
+  return currentY + 4
+}
+
+function renderCoeTable(doc, currentY, items, columns, options = {}) {
+  if (!items.length) return currentY
+  const body = items.map((row, rowIndex) => columns.map((column) => {
+    if (column.key === '__no__') return rowIndex + 1
+    if (column.key === 'FechaInicial') return declarationDate(row?.[column.key])
+    if (column.key === 'PorcentajeActivacion') return `${Number(row?.[column.key]) || 0}%`
+    return String(row?.[column.key] ?? '--')
+  }))
+  const columnStyles = Object.fromEntries(columns.map((column, index) => [index, { cellWidth: column.width }]))
+
+  autoTable(doc, {
+    startY: currentY,
+    head: [columns.map((column) => column.label)],
+    body,
+    theme: 'grid',
+    tableWidth: options.tableWidth || PAGE.contentWidth,
+    margin: { left: options.left || PAGE.left, right: PAGE.right, top: PAGE.top, bottom: PAGE.height - PAGE.bottom },
+    styles: { font: 'BarlowCondensed', fontSize: options.fontSize || 6.2, cellPadding: 0.7, halign: 'center', valign: 'middle', lineWidth: 0.12, lineColor: C.line },
+    headStyles: { fillColor: C.darkNavy, textColor: C.white, fontStyle: 'bold', minCellHeight: 8 },
+    bodyStyles: { fillColor: C.white },
+    columnStyles,
+    showHead: 'everyPage',
+    rowPageBreak: 'avoid',
+    didParseCell: ({ cell, column, row, section }) => {
+      if (section !== 'body') return
+      if (columns[column.index]?.key === 'Estado') cell.styles.textColor = [239, 68, 68]
+      if (options.percentageColumn === column.index) cell.styles.fillColor = coePercentageColor(items[row.index]?.PorcentajeActivacion)
+      if (options.totalRowIndex === row.index) {
+        cell.styles.fillColor = C.pale
+        cell.styles.textColor = C.black
+        cell.styles.fontStyle = 'bold'
+      }
+    },
+  })
+  return doc.lastAutoTable.finalY + 6
+}
+
+function renderActivatedCoes(doc, currentY, nationalItems, provincialItems, municipalItems, parishItems, metadata) {
+  const national = uniqueActiveCoeRows(nationalItems, ['TipoCOE'])[0] || null
+  const provincial = uniqueActiveCoeRows(provincialItems, ['Provincia'])
+    .sort((left, right) => String(left?.Provincia || '').localeCompare(String(right?.Provincia || ''), 'es'))
+  const municipal = buildMunicipalCoeSummary(municipalItems)
+  const parish = uniqueActiveCoeRows(parishItems, ['Provincia', 'Canton', 'Parroquia'])
+    .sort((left, right) => String(left?.Provincia || '').localeCompare(String(right?.Provincia || ''), 'es'))
+  if (!national && !provincial.length && !municipal.totalActive && !parish.length) return currentY
+
+  currentY = ensurePageSpace(doc, currentY, 20)
+  font(doc, 'bold', 9.4, C.black)
+  const heading = 'Comités de Operaciones de Emergencias (COE) activados:'
+  doc.text(heading, PAGE.left + 2, currentY)
+  doc.setDrawColor(...C.black)
+  doc.setLineWidth(0.2)
+  doc.line(PAGE.left + 2, currentY + 0.8, PAGE.left + 2 + doc.getTextWidth(heading), currentY + 0.8)
+  currentY += 5
+  font(doc, 'normal', 8.2, C.black)
+  currentY = wrapped(doc, `Desde el ${metadata.startLong} hasta el ${metadata.endLong} se han activado los siguientes COE:`, PAGE.left + 2, currentY, PAGE.contentWidth - 2) + 2
+
+  if (national) {
+    currentY = renderCoeSubtitle(doc, currentY, `COE Nacional activo desde el ${declarationDate(national.FechaInicial)}.`)
+  }
+
+  if (provincial.length) {
+    currentY = renderCoeSubtitle(doc, currentY, `${fmt(provincial.length)} COE provinciales:`)
+    currentY = renderCoeTable(doc, currentY, provincial, [
+      { key: '__no__', label: 'Nro.', width: 10 },
+      { key: 'Provincia', label: 'Provincia', width: 50 },
+      { key: 'FechaInicial', label: 'Fecha de Activación', width: 32 },
+      { key: 'Estado', label: 'Estado', width: 25 },
+    ], { tableWidth: 117, left: PAGE.left + 20 })
+  }
+
+  if (municipal.totalActive) {
+    currentY = renderCoeSubtitle(doc, currentY, `A nivel nacional, se registran ${fmt(municipal.totalActive)} COE Cantonales activos de un total de ${fmt(municipal.totalCantons)} cantones, lo que representa una activación global del ${municipal.globalPercentage}%.`)
+    const municipalRows = [
+      ...municipal.rows,
+      { Provincia: 'Total general', TotalCantones: municipal.totalCantons, CantonesActivos: municipal.totalActive, PorcentajeActivacion: municipal.globalPercentage },
+    ]
+    currentY = renderCoeTable(doc, currentY, municipalRows, [
+      { key: 'Provincia', label: 'Provincia', width: 52 },
+      { key: 'TotalCantones', label: 'Total de Cantones', width: 32 },
+      { key: 'CantonesActivos', label: 'Nro. de COE Cantonales Activos', width: 44 },
+      { key: 'PorcentajeActivacion', label: '% de COE cantonales activos', width: 40 },
+    ], { tableWidth: 168, left: PAGE.left + 2, percentageColumn: 3, totalRowIndex: municipalRows.length - 1 })
+  }
+
+  if (parish.length) {
+    currentY = renderCoeSubtitle(doc, currentY, `${fmt(parish.length)} COE parroquiales:`)
+    currentY = renderCoeTable(doc, currentY, parish, [
+      { key: '__no__', label: 'Nro.', width: 8 },
+      { key: 'Provincia', label: 'Provincia', width: 31 },
+      { key: 'Canton', label: 'Cantón', width: 31 },
+      { key: 'Parroquia', label: 'Parroquia', width: 38 },
+      { key: 'FechaInicial', label: 'Fecha de Activación', width: 35 },
+      { key: 'Estado', label: 'Estado', width: 25 },
+    ], { tableWidth: 168, left: PAGE.left + 2 })
+  }
+  return currentY
+}
+
+function renderDeclarations(doc, currentY, alertDeclarations, emergencyDeclarations, nationalCoeItems, provincialCoeItems, municipalCoeItems, parishCoeItems, metadata) {
+  const hasCoeData = nationalCoeItems.length || provincialCoeItems.length || municipalCoeItems.length || parishCoeItems.length
+  if (!alertDeclarations.length && !emergencyDeclarations.length && !hasCoeData) return currentY
+  currentY = renderSectionTitle(doc, currentY, '7', 'Declaratorias emitidas y COE activados')
+  const orderedAlerts = sortDeclarationsByGovernmentLevel(alertDeclarations)
+  currentY = renderDeclarationTable(doc, currentY, 'Declaratorias de niveles de alertas en todo el país:', orderedAlerts, ALERT_DECLARATION_COLUMNS, true)
+  currentY = renderDeclarationTable(doc, currentY, 'Declaratorias de emergencia en todo el país:', emergencyDeclarations, EMERGENCY_DECLARATION_COLUMNS)
+  currentY = renderRichParagraph(doc, currentY, [
+    { text: 'Además, mediante' },
+    { text: 'Decreto ejecutivo Nro. 485, firmado el 31 de agosto de 2026, por el presidente del Ecuador Daniel Noboa Azin, resuelve declarar', bold: true },
+    { text: 'como prioridad nacional la continuidad y el fortalecimiento de las acciones de prevención y preparación frente a los posibles efectos del fenómeno El Niño en el territorio nacional, así como la ejecución de las acciones de respuesta y recuperación que correspondan, en función de la evolución del evento y los escenarios de riesgos, en el marco de la Alerta Roja declarada en todo el territorio nacional, mediante Resolución No. SNGR-238-2026, del 29 de agosto de 2026.' },
+  ], { fontSize: 8.2, lineHeight: 4, estimatedHeight: 32 })
+  currentY = renderActivatedCoes(doc, currentY, nationalCoeItems, provincialCoeItems, municipalCoeItems, parishCoeItems, metadata)
+  return sourceLine(doc, currentY, metadata)
+}
+
+function reportLines(value) {
+  return String(value ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+}
+
+function affectationText(value) {
+  const [label, ...amountParts] = String(value ?? '').split('=')
+  if (!amountParts.length) return String(value ?? '').trim()
+  return `${amountParts.join('=').trim()} ${label.trim()}`
+}
+
+function renderPagedText(doc, currentY, text, options = {}) {
+  const left = options.left ?? PAGE.left
+  const width = options.width ?? PAGE.contentWidth
+  const lineHeight = options.lineHeight ?? 3.8
+  const after = options.after ?? 1.5
+  const lines = doc.splitTextToSize(String(text ?? '').trim(), width)
+  if (!lines.length) return currentY
+  font(doc, options.style || 'normal', options.fontSize || 8.2, options.color || C.black)
+  lines.forEach((line) => {
+    if (currentY + lineHeight > PAGE.bottom) {
+      doc.addPage('a4', 'portrait')
+      currentY = PAGE.top
+      font(doc, options.style || 'normal', options.fontSize || 8.2, options.color || C.black)
+    }
+    doc.text(line, left, currentY)
+    currentY += lineHeight
+  })
+  return currentY + after
+}
+
+function renderHighImpactEvents(doc, currentY, items, metadata) {
+  if (!items.length) return currentY
+  currentY = renderSectionTitle(doc, currentY, '8', 'Eventos adversos de alto impacto')
+  currentY = renderPagedText(doc, currentY, 'A continuación, se detallan los eventos adversos relevantes de los últimos días:', { fontSize: 8.7, after: 2.5 })
+
+  let activeZone = null
+  items.forEach((item) => {
+    const zone = String(item?.Zona ?? '').trim() || 'Sin zona'
+    if (zone !== activeZone) {
+      currentY = ensurePageSpace(doc, currentY, 12)
+      font(doc, 'italic', 9.2, [11, 31, 120])
+      doc.text(`Zona ${zone}`, PAGE.left + 5, currentY)
+      currentY += 5
+      activeZone = zone
+    }
+
+    currentY = ensurePageSpace(doc, currentY, 22)
+    doc.setFillColor(23, 74, 139)
+    doc.circle(PAGE.left + 2.2, currentY - 1.1, 0.75, 'F')
+    currentY = renderPagedText(doc, currentY, `${String(item?.Ubicacion || 'Ubicación no registrada').trim()}.`, {
+      left: PAGE.left + 7,
+      width: PAGE.contentWidth - 7,
+      style: 'bold',
+      fontSize: 8.6,
+      color: [11, 31, 120],
+      after: 0.8,
+    })
+
+    if (String(item?.Antecedentes ?? '').trim()) {
+      currentY = renderPagedText(doc, currentY, item.Antecedentes, { left: PAGE.left + 7, width: PAGE.contentWidth - 7, fontSize: 8.2, after: 1 })
+    }
+    if (String(item?.SituacionActual ?? '').trim()) {
+      currentY = renderPagedText(doc, currentY, item.SituacionActual, { left: PAGE.left + 7, width: PAGE.contentWidth - 7, fontSize: 8.2, after: 1 })
+    }
+
+    reportLines(item?.Afectaciones).forEach((line) => {
+      currentY = renderPagedText(doc, currentY, `-  ${affectationText(line)}.`, {
+        left: PAGE.left + 12,
+        width: PAGE.contentWidth - 12,
+        style: 'bold',
+        fontSize: 8.2,
+        after: 0.2,
+      })
+    })
+
+    if (String(item?.CoordinacionYRespuesta ?? '').trim()) {
+      reportLines(item.CoordinacionYRespuesta).forEach((line) => {
+        currentY = renderPagedText(doc, currentY, line, {
+          left: PAGE.left + 7,
+          width: PAGE.contentWidth - 7,
+          fontSize: 8.2,
+          after: 0.8,
+        })
+      })
+    }
+    currentY += 2
+  })
+  return sourceLine(doc, currentY, metadata)
+}
+
 export async function buildEventosLluviasPdf({
   items = [], tipoLluviasItems = [], asistenciaItems = [], asistenciaSNDGIRDItems = [], alojamientosItems = [], alojamientosCerradosItems = [],
   eventosMesItems = [], viasCategoriaItems = [], dpaTotals = null, sitrepNumber = null, affectationLevel = null,
-  hydrometeorology = null, waterBodies = [], publishedAt = new Date(), startDate = null, endDate = null, assetBaseUrl = null,
+  hydrometeorology = null, waterBodiesOverflowed = [], waterBodiesRising = [], alertDeclarations = [], emergencyDeclarations = [],
+  nationalCoeItems = [], provincialCoeItems = [], municipalCoeItems = [], parishCoeItems = [],
+  highImpactEvents = [],
+  publishedAt = new Date(), startDate = null, endDate = null, assetBaseUrl = null,
 } = {}) {
   const assets = await loadPdfAssets(assetBaseUrl)
   const doc = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
@@ -763,15 +1173,18 @@ export async function buildEventosLluviasPdf({
   let currentY = PAGE.firstTop
   currentY = renderImportantPoints(doc, currentY, { items, tipoLluviasItems, asistenciaItems, dpaTotals, metadata })
   currentY = renderAffectationLevel(doc, currentY, affectationLevel)
-  currentY = renderHydrometeorology(doc, currentY, hydrometeorology)
-  currentY = renderWaterBodies(doc, currentY, waterBodies)
+  const hydrometeorologyData = hydrometeorology || { text: HYDROMETEOROLOGY_TEXT, image: assets.hydrometeorology }
+  currentY = renderHydrometeorology(doc, currentY, hydrometeorologyData)
+  currentY = renderWaterBodies(doc, currentY, waterBodiesOverflowed, waterBodiesRising, metadata)
   currentY = renderEventsTable(doc, currentY, tipoLluviasItems, metadata)
   currentY = renderAffectationsSummary(doc, currentY, items, viasCategoriaItems, assets, metadata)
   currentY = renderProvinceDetail(doc, currentY, items, metadata)
   currentY = renderProvinceImpactChart(doc, currentY, items, metadata)
   currentY = renderMonthlySummary(doc, currentY, eventosMesItems, metadata)
   currentY = renderTemporaryShelters(doc, currentY, alojamientosItems, alojamientosCerradosItems, metadata)
-  renderAssistance(doc, currentY, asistenciaItems, asistenciaSNDGIRDItems, metadata)
+  currentY = renderAssistance(doc, currentY, asistenciaItems, asistenciaSNDGIRDItems, metadata)
+  currentY = renderDeclarations(doc, currentY, alertDeclarations, emergencyDeclarations, nationalCoeItems, provincialCoeItems, municipalCoeItems, parishCoeItems, metadata)
+  renderHighImpactEvents(doc, currentY, highImpactEvents, metadata)
   decoratePages(doc, { assets, metadata, publishedAt })
   return doc
 }

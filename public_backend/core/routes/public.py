@@ -15,7 +15,12 @@ from ..services.afectaciones_service import (
     get_alojamientos_temporales_cerrados_por_lluvias,
     get_asistencia_humanitaria_por_lluvias_SNDGIRD,
     get_personas_fallecidas_por_lluvias,
-    get_eventos_lluvias_total_por_mes    
+    get_eventos_lluvias_total_por_mes,
+    get_cuerpos_hidricos_por_estado,
+    get_niveles_alerta_por_lluvias,
+    get_declaratorias_emergencia_por_lluvias,
+    get_coes_por_lluvias,
+    get_eventos_alto_impacto_por_lluvias,
 )
 from ..services.consolidado_service import (
     ConsolidadoServiceError,
@@ -795,3 +800,97 @@ def eventos_lluvias_total_por_mes():
         return jsonify({"total": len(data), "items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
+
+
+def _cuerpos_hidricos_response(estado):
+    try:
+        data = get_cuerpos_hidricos_por_estado(estado)
+        return jsonify({"total": len(data), "items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": "Database query failed", "details": error.details}), 500
+
+
+@public_bp.get("/cuerpos-hidricos-desbordados-por-lluvias")
+@require_api_key
+def cuerpos_hidricos_desbordados_por_lluvias():
+    """Lista cuerpos hidricos desbordados reportados para el SITREP de lluvias."""
+    return _cuerpos_hidricos_response("Desbordado")
+
+
+@public_bp.get("/cuerpos-hidricos-tendencia-a-aumentar-por-lluvias")
+@require_api_key
+def cuerpos_hidricos_tendencia_a_aumentar_por_lluvias():
+    """Lista cuerpos hidricos con tendencia a aumentar de nivel."""
+    return _cuerpos_hidricos_response("Con tendencia a aumentar de nivel")
+
+
+@public_bp.get("/niveles-alerta-por-lluvias")
+@require_api_key
+def niveles_alerta_por_lluvias():
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
+
+    try:
+        data = get_niveles_alerta_por_lluvias(desde, hasta)
+        return jsonify({"total": len(data), "items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": "Database query failed", "details": error.details}), 500
+
+
+@public_bp.get("/declaratorias-emergencia-por-lluvias")
+@require_api_key
+def declaratorias_emergencia_por_lluvias():
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
+
+    try:
+        data = get_declaratorias_emergencia_por_lluvias(desde, hasta)
+        return jsonify({"total": len(data), "items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": "Database query failed", "details": error.details}), 500
+
+
+@public_bp.get("/coes-activados-por-lluvias")
+@require_api_key
+def coes_activados_por_lluvias():
+    nivel = (request.args.get("tipo") or "").strip().upper()
+    niveles_permitidos = {"COE-N", "COE-P", "COE-M", "COPAE"}
+    if nivel not in niveles_permitidos:
+        return jsonify({
+            "error": "tipo must be one of COE-N, COE-P, COE-M or COPAE"
+        }), 400
+
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
+
+    try:
+        data = get_coes_por_lluvias(desde, hasta, nivel)
+        return jsonify({"tipo": nivel, "total": len(data), "items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": str(error), "details": error.details}), 500
+
+
+@public_bp.get("/eventos-alto-impacto-por-lluvias")
+@require_api_key
+def eventos_alto_impacto_por_lluvias():
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
+
+    cantidad_raw = (request.args.get("cantidad") or "5").strip()
+    try:
+        cantidad = int(cantidad_raw)
+    except ValueError:
+        return jsonify({"error": "cantidad must be an integer"}), 400
+
+    if cantidad < 1 or cantidad > 50:
+        return jsonify({"error": "cantidad must be between 1 and 50"}), 400
+
+    try:
+        data = get_eventos_alto_impacto_por_lluvias(desde, hasta, cantidad)
+        return jsonify({"cantidad": cantidad, "total": len(data), "items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": str(error), "details": error.details}), 500
