@@ -332,7 +332,7 @@ def preparar_registros(rows):
         registro = transformar_fila(row, index)
 
         if registro:
-            registros.append(registro)
+            registros.append((len(registros) + 1, *registro))
         else:
             errores += 1
 
@@ -372,6 +372,7 @@ def importar_mysql(rows):
         with connection.cursor() as cursor:
             sql = f"""
                 INSERT INTO `{TABLE_NAME}` (
+                    id,
                     provincia,
                     canton,
                     parroquia,
@@ -394,6 +395,7 @@ def importar_mysql(rows):
                     longitud
                 )
                 VALUES (
+                    %s,
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s,
