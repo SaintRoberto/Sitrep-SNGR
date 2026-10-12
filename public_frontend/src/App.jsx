@@ -2,6 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { exportEventosLluviasPdf } from './utils/pdfReport'
 import { buildMunicipalCoeSummary, coeActivationClass, uniqueActiveCoeRows } from './utils/coeConfig.js'
+import {
+  buildProvinceImpactMap,
+  ECUADOR_PROVINCES,
+  impactCellClass,
+  impactColor,
+  impactLegend,
+  provinceImpactValue,
+  provincePathData,
+  shortProvinceLabel,
+} from './utils/impactMap.js'
 
 const API_ENV = import.meta.env.VITE_API_ENV || 'local'
 const API_LOCAL_URL = import.meta.env.VITE_API_LOCAL_URL || 'http://localhost:5000'
@@ -221,6 +231,13 @@ function sortByNumeroEventosDesc(rows) {
   return [...rows].sort((a, b) => n(b?.NumeroEventos) - n(a?.NumeroEventos))
 }
 
+function sortByPersonasImpactadasDesc(rows) {
+  return [...rows].sort((a, b) => (
+    n(b?.ImpactadasPersonas) - n(a?.ImpactadasPersonas)
+    || n(b?.NumeroEventos) - n(a?.NumeroEventos)
+  ))
+}
+
 function withTotalsRow(columns, rows) {
   const totalRow = { __isTotal__: true }
 
@@ -264,12 +281,14 @@ function formatPctText(v) {
   return `${formatPct(v)}%`
 }
 
-function getPctClass(v) {
+function getPctClass(v, maximum) {
   const value = n(v)
-  if (value >= 45) return 'pct-very-high'
-  if (value >= 30) return 'pct-high'
-  if (value >= 10) return 'pct-mid'
-  return 'pct-low'
+  if (maximum > 0 && value === maximum) return 'pct-very-high'
+  const percentageOfMaximum = maximum > 0 ? (value / maximum) * 100 : 0
+  if (percentageOfMaximum < 3) return 'pct-low'
+  if (percentageOfMaximum < 10) return 'pct-mid'
+  if (percentageOfMaximum < 30) return 'pct-yellow'
+  return 'pct-high'
 }
 
 function prettifyLabel(key) {
@@ -638,6 +657,7 @@ function App() {
   const maxSelectableDateTime = useMemo(() => toDateTimeInputValue(new Date()), [])
   const [tipo, setTipo] = useState('lluvias')
   const [provinciaId, setProvinciaId] = useState('')
+  const [analystEmail, setAnalystEmail] = useState('')
   const [desde, setDesde] = useState(() => `${new Date().getFullYear()}-01-01T00:00`)
   const [hasta, setHasta] = useState(() => toDateTimeInputValue(new Date()))
   const [loading, setLoading] = useState(false)
@@ -686,9 +706,30 @@ function App() {
   const analysisRows = tipo === 'lluvias' ? tipoLluviasItems : items
   const currentDetailCols = useMemo(() => (tipo === 'lluvias' ? DETAIL_COLS : buildDynamicCols(items)), [tipo, items])
   const detailRows = useMemo(() => {
-    const ordered = sortByNumeroEventosDesc(items)
+    const ordered = sortByPersonasImpactadasDesc(items)
     return ordered.map((row, idx) => ({ __no__: idx + 1, ...row }))
   }, [items])
+  const provinceImpactSummary = useMemo(() => buildProvinceImpactMap(items), [items])
+  const provinceImpactTopName = String(detailRows[0]?.Provincia || '').trim() || 'máximo'
+  const provinceImpactTableRows = useMemo(() => {
+    const maximum = provinceImpactSummary.maximum
+    const rows = detailRows.map((row) => ({
+      __no__: row.__no__,
+      Provincia: row.Provincia,
+      ImpactadasPersonas: n(row.ImpactadasPersonas),
+      PorcentajeMaximo: maximum > 0 ? (n(row.ImpactadasPersonas) / maximum) * 100 : 0,
+    }))
+    return [
+      ...rows,
+      {
+        __isTotal__: true,
+        __no__: '',
+        Provincia: 'Total general',
+        ImpactadasPersonas: rows.reduce((total, row) => total + row.ImpactadasPersonas, 0),
+        PorcentajeMaximo: '-',
+      },
+    ]
+  }, [detailRows, provinceImpactSummary.maximum])
   const tipoLluviasRowsOrdered = useMemo(() => sortByNumeroEventosDesc(tipoLluviasItems), [tipoLluviasItems])
   const section3Cols = useMemo(() => (tipo === 'lluvias' ? TIPO_LLUVIAS_COLS : currentDetailCols), [tipo, currentDetailCols])
   const section3BaseRows = useMemo(() => (tipo === 'lluvias' ? tipoLluviasRowsOrdered : detailRows), [tipo, tipoLluviasRowsOrdered, detailRows])
@@ -765,6 +806,13 @@ function App() {
       },
     ]
   }, [eventosMesItems])
+  const section43ColorMaximums = useMemo(() => {
+    const rows = section43Rows.filter((row) => !row.__isTotal__)
+    return {
+      eventos: Math.max(0, ...rows.map((row) => n(row.pct_eventos))),
+      personas: Math.max(0, ...rows.map((row) => n(row.pct_personas_impactadas))),
+    }
+  }, [section43Rows])
   const section43RowsForExport = useMemo(
     () =>
       section43Rows.map((row) => ({
@@ -1303,6 +1351,7 @@ function App() {
         municipalCoeItems: dataCoeMunicipal?.items || [],
         parishCoeItems: dataCopae?.items || [],
         highImpactEvents: dataEventosAltoImpacto?.items || [],
+        analystEmail: analystEmail.trim(),
         dpaTotals: (dataDpa?.items || [])[0] || null,
         provinciaId: provinciaId.trim() || null,
         personasFallecidasItems: dataPersonasFallecidas?.items || [],
@@ -1360,6 +1409,16 @@ function App() {
               max={maxSelectableDateTime}
               value={hasta}
               onChange={(e) => setHasta(e.target.value)}
+            />
+          </label>
+
+          <label>
+            Correo electrónico del analista
+            <input
+              type="email"
+              placeholder="Ej: analista@gestionderiesgos.gob.ec"
+              value={analystEmail}
+              onChange={(e) => setAnalystEmail(e.target.value)}
             />
           </label>
 
@@ -1541,9 +1600,16 @@ function App() {
                 <tbody>
                   {section5RowsWithTotals.map((row, idx) => (
                     <tr key={idx} className={row.__isTotal__ ? 'total-row' : ''}>
-                      {currentDetailCols.map(([key]) =>
-                        <td key={`${idx}-${key}`}>{row[key] ?? '0'}</td>)}
-
+                      {currentDetailCols.map(([key]) => (
+                        <td
+                          key={`${idx}-${key}`}
+                          className={!row.__isTotal__ && key === 'ImpactadasPersonas'
+                            ? impactCellClass(row[key], provinceImpactSummary.maximum)
+                            : ''}
+                        >
+                          {row[key] ?? '0'}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
@@ -1572,8 +1638,8 @@ function App() {
                       <td>{row.mes || '-'}</td>
                       <td>{formatInt(row.eventos)}</td>
                       <td>{formatInt(row.personas_impactadas)}</td>
-                      <td className={row.__isTotal__ ? '' : getPctClass(row.pct_eventos)}>{formatPctText(row.pct_eventos)}</td>
-                      <td className={row.__isTotal__ ? '' : getPctClass(row.pct_personas_impactadas)}>{formatPctText(row.pct_personas_impactadas)}</td>
+                      <td className={row.__isTotal__ ? '' : getPctClass(row.pct_eventos, section43ColorMaximums.eventos)}>{formatPctText(row.pct_eventos)}</td>
+                      <td className={row.__isTotal__ ? '' : getPctClass(row.pct_personas_impactadas, section43ColorMaximums.personas)}>{formatPctText(row.pct_personas_impactadas)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1876,6 +1942,90 @@ function App() {
                     </ul>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {tipo === 'lluvias' && items.length > 0 && (
+              <div className="impact-map-section sitrep-final-section">
+                <div className="block-title pt-4">9. Mapa de Personas Impactadas por lluvias a Nivel Nacional</div>
+                <div className="province-impact-section">
+                  <div className="province-impact-comparison">
+                    <div className="province-impact-table-wrap">
+                      <table className="province-impact-table">
+                        <thead>
+                          <tr>
+                            <th>No.</th>
+                            <th>Provincia</th>
+                            <th>Personas<br />Impactadas</th>
+                            <th>% del máximo<br />({provinceImpactTopName})</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {provinceImpactTableRows.map((row, index) => (
+                            <tr key={`impacto-provincia-${row.Provincia}-${index}`} className={row.__isTotal__ ? 'total-row' : ''}>
+                              <td>{row.__no__}</td>
+                              <td>{row.Provincia}</td>
+                              <td className={row.__isTotal__ ? '' : impactCellClass(row.ImpactadasPersonas, provinceImpactSummary.maximum)}>
+                                {formatInt(row.ImpactadasPersonas)}
+                              </td>
+                              <td>{row.__isTotal__ ? '-' : formatPctText(row.PorcentajeMaximo)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="province-impact-map-panel">
+                      <svg className="impact-map-svg" viewBox="0 0 600 600" role="img" aria-label="Mapa de personas impactadas por provincia">
+                        {ECUADOR_PROVINCES.map((province) => {
+                          const value = provinceImpactValue(provinceImpactSummary, province.name)
+                          const fill = impactColor(value, provinceImpactSummary.maximum, value !== undefined).hex
+                          return (
+                            <g key={`mapa-${province.name}`}>
+                              <path
+                                d={provincePathData(province)}
+                                fill={fill}
+                                fillRule="evenodd"
+                                stroke="#3f4b3f"
+                                strokeWidth="1.1"
+                              />
+                              <text className="impact-map-label" x={province.label[0]} y={province.label[1]}>
+                                {shortProvinceLabel(province.name)}
+                              </text>
+                            </g>
+                          )
+                        })}
+                      </svg>
+                    </div>
+                  </div>
+
+                  <div className="province-impact-scale">
+                    <strong>Escala de afectación (Población impactada)</strong>
+                    <div className="province-impact-scale-items">
+                      {impactLegend().map((entry) => (
+                        <div key={`escala-${entry.level}`}>
+                          <span style={{ background: entry.color.hex }} />
+                          <small>{entry.label}</small>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <p className="impact-map-credit">SitRep generado por la Dirección de Monitoreo de Eventos Adversos de la Secretaría Nacional de Gestión de Riesgos.</p>
+                <div className="sitrep-signoffs">
+                  <div>
+                    <h4>SitRep elaborado por:</h4>
+                    <p><strong>Nombre:</strong> Cristian Mazorra Olmedo - Analista de Monitoreo</p>
+                    <p><strong>Correo electrónico:</strong> {analystEmail.trim() || 'Pendiente de ingresar'}</p>
+                    <p><strong>Teléfono:</strong> 04 2593500 ext. 1602</p>
+                  </div>
+                  <div>
+                    <h4>SitRep aprobado por:</h4>
+                    <p><strong>Nombre:</strong> Stalin Jiménez - Director de Monitoreo de Eventos Adversos</p>
+                    <p><strong>Correo electrónico:</strong> director.monitoreo@gestionderiesgos.gob.ec</p>
+                    <p><strong>Teléfono:</strong> 04 2593500 ext. 1602</p>
+                  </div>
+                </div>
               </div>
             )}
           </section>

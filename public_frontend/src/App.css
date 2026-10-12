@@ -527,6 +527,12 @@ td.pct-mid {
   font-weight: 700;
 }
 
+td.pct-yellow {
+  background: #ffe57a;
+  color: #3f3500;
+  font-weight: 700;
+}
+
 td.pct-high {
   background: #f0a96b;
   color: #4a1f05;
@@ -537,6 +543,254 @@ td.pct-very-high {
   background: #ef6b6b;
   color: #4f0912;
   font-weight: 700;
+}
+
+td.impact-low {
+  background: #42ba3c;
+  color: #083212;
+  font-weight: 700;
+}
+
+td.impact-yellowGreen {
+  background: #b8ec8a;
+  color: #1b3a1b;
+  font-weight: 700;
+}
+
+td.impact-medium {
+  background: #ffe063;
+  color: #3f3500;
+  font-weight: 700;
+}
+
+td.impact-high {
+  background: #ffa05a;
+  color: #4a1f05;
+  font-weight: 700;
+}
+
+td.impact-maximum {
+  background: #ff3150;
+  color: #4f0912;
+  font-weight: 700;
+}
+
+.province-impact-section {
+  margin-top: 12px;
+}
+
+.province-impact-comparison {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.82fr) minmax(460px, 1.18fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.province-impact-table-wrap {
+  overflow: visible;
+}
+
+.province-impact-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.province-impact-table th:nth-child(1),
+.province-impact-table td:nth-child(1) {
+  width: 9%;
+}
+
+.province-impact-table th:nth-child(2),
+.province-impact-table td:nth-child(2) {
+  width: 36%;
+  text-align: left;
+}
+
+.province-impact-table th:nth-child(3),
+.province-impact-table td:nth-child(3) {
+  width: 27%;
+}
+
+.province-impact-table th:nth-child(4),
+.province-impact-table td:nth-child(4) {
+  width: 28%;
+}
+
+.province-impact-table th,
+.province-impact-table td {
+  padding: 4px 5px;
+  line-height: 1.15;
+}
+
+.province-impact-map-panel {
+  min-width: 0;
+}
+
+.province-impact-map-panel .impact-map-svg {
+  width: 100%;
+  max-height: 650px;
+}
+
+.province-impact-scale {
+  margin-top: 12px;
+  padding: 8px 12px 10px;
+  border: 1px solid #8fb1d8;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.province-impact-scale > strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #173d70;
+  font-size: 12px;
+}
+
+.province-impact-scale-items {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.province-impact-scale-items > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: #173d70;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.province-impact-scale-items span {
+  flex: 0 0 34px;
+  height: 22px;
+  border: 1px solid #d5dde8;
+}
+
+@media (max-width: 950px) {
+  .province-impact-comparison {
+    grid-template-columns: 1fr;
+  }
+
+  .province-impact-table-wrap {
+    overflow: auto;
+  }
+
+  .province-impact-scale-items {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.impact-map-section {
+  color: #111827;
+}
+
+.impact-map-layout {
+  position: relative;
+  width: min(100%, 760px);
+  margin: 16px auto 6px;
+}
+
+.impact-map-svg {
+  display: block;
+  width: 100%;
+  max-height: 620px;
+}
+
+.impact-map-label {
+  fill: #263242;
+  font-size: 9px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 1.8px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.impact-map-legend {
+  position: absolute;
+  right: 8%;
+  bottom: 12%;
+  width: min(235px, 34%);
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #cbd5e1;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.impact-map-legend strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.impact-map-legend div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.impact-map-legend span {
+  width: 16px;
+  height: 12px;
+  border: 1px solid #64748b;
+}
+
+.impact-map-legend .legend-none {
+  background: #f3f7fb !important;
+}
+
+.impact-map-legend .legend-low {
+  background: #42ba3c !important;
+}
+
+.impact-map-legend .legend-yellowGreen {
+  background: #b8ec8a !important;
+}
+
+.impact-map-legend .legend-medium {
+  background: #ffe063 !important;
+}
+
+.impact-map-legend .legend-high {
+  background: #ffa05a !important;
+}
+
+.impact-map-legend .legend-maximum {
+  background: #ff3150 !important;
+}
+
+.impact-map-credit {
+  margin: 4px 0 14px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.sitrep-signoffs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+
+.sitrep-signoffs > div {
+  border-top: 18px solid #d9d9d9;
+  padding: 5px 10px;
+}
+
+.sitrep-signoffs h4 {
+  margin: -21px 0 8px;
+  text-align: center;
+  font-size: 13px;
+  font-style: italic;
+  font-weight: 500;
+}
+
+.sitrep-signoffs p {
+  margin: 2px 0;
+  font-size: 12px;
 }
 
 .result pre {
@@ -563,5 +817,9 @@ td.pct-very-high {
   .hydrometeorology-layout img {
     max-width: 420px;
     margin: 0 auto;
+  }
+
+  .sitrep-signoffs {
+    grid-template-columns: 1fr;
   }
 }
