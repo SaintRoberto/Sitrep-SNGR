@@ -738,26 +738,6 @@ function App() {
     return ordered.map((row, idx) => ({ __no__: idx + 1, ...row }))
   }, [items])
   const provinceImpactSummary = useMemo(() => buildProvinceImpactMap(items), [items])
-  const provinceImpactTopName = String(detailRows[0]?.Provincia || '').trim() || 'máximo'
-  const provinceImpactTableRows = useMemo(() => {
-    const maximum = provinceImpactSummary.maximum
-    const rows = detailRows.map((row) => ({
-      __no__: row.__no__,
-      Provincia: row.Provincia,
-      ImpactadasPersonas: n(row.ImpactadasPersonas),
-      PorcentajeMaximo: maximum > 0 ? (n(row.ImpactadasPersonas) / maximum) * 100 : 0,
-    }))
-    return [
-      ...rows,
-      {
-        __isTotal__: true,
-        __no__: '',
-        Provincia: 'Total general',
-        ImpactadasPersonas: rows.reduce((total, row) => total + row.ImpactadasPersonas, 0),
-        PorcentajeMaximo: '-',
-      },
-    ]
-  }, [detailRows, provinceImpactSummary.maximum])
   const tipoLluviasRowsOrdered = useMemo(() => sortByNumeroEventosDesc(tipoLluviasItems), [tipoLluviasItems])
   const section3Cols = useMemo(() => (tipo === 'lluvias' ? TIPO_LLUVIAS_COLS : currentDetailCols), [tipo, currentDetailCols])
   const section3BaseRows = useMemo(() => (tipo === 'lluvias' ? tipoLluviasRowsOrdered : detailRows), [tipo, tipoLluviasRowsOrdered, detailRows])
@@ -2017,31 +1997,6 @@ function App() {
                 <div className="block-title pt-4">9. Mapa de Personas Impactadas por lluvias a Nivel Nacional</div>
                 <div className="province-impact-section">
                   <div className="province-impact-comparison">
-                    <div className="province-impact-table-wrap">
-                      <table className="province-impact-table">
-                        <thead>
-                          <tr>
-                            <th>No.</th>
-                            <th>Provincia</th>
-                            <th>Personas<br />Impactadas</th>
-                            <th>% del máximo<br />({provinceImpactTopName})</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {provinceImpactTableRows.map((row, index) => (
-                            <tr key={`impacto-provincia-${row.Provincia}-${index}`} className={row.__isTotal__ ? 'total-row' : ''}>
-                              <td>{row.__no__}</td>
-                              <td>{row.Provincia}</td>
-                              <td className={row.__isTotal__ ? '' : impactCellClass(row.ImpactadasPersonas, provinceImpactSummary.maximum)}>
-                                {formatInt(row.ImpactadasPersonas)}
-                              </td>
-                              <td>{row.__isTotal__ ? '-' : formatPctText(row.PorcentajeMaximo)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
                     <div className="province-impact-map-panel">
                       <svg className="impact-map-svg" viewBox="0 0 600 600" role="img" aria-label="Mapa de personas impactadas por provincia">
                         {ECUADOR_PROVINCES.map((province) => {

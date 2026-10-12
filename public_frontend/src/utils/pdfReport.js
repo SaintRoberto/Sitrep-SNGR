@@ -1288,26 +1288,26 @@ function renderProvinceImpactMap(doc, currentY, items, analystEmail) {
     doc.text(shortProvinceLabel(province.name), mapX + labelX * mapWidth / 600, mapY + labelY * mapHeight / 600, { align: 'center' })
   })
 
-  const legendWidth = 74
-  const legendHeight = 43
-  const legendX = mapX + mapWidth - legendWidth - 2
-  const legendY = mapY + mapHeight - legendHeight - 2
+  const legendWidth = 36
+  const legendHeight = 55
+  const legendX = mapX + mapWidth - legendWidth
+  const legendY = mapY + mapHeight - legendHeight + 2
   doc.setFillColor(255, 255, 255)
   doc.setDrawColor(143, 177, 216)
-  doc.roundedRect(legendX, legendY, legendWidth, legendHeight, 1, 1, 'FD')
-  font(doc, 'bold', 5.2, C.navy)
-  doc.text('Escala de afectación (Población impactada)', legendX + 3, legendY + 4)
+  doc.roundedRect(legendX, legendY, legendWidth, legendHeight - 20, 1, 1, 'FD')
+  font(doc, 'bold', 4.2, C.navy)
+  doc.text('Escala de afectación (Población impactada)', legendX + 2.5, legendY + 3.5)
   const legendEntries = impactLegend()
   legendEntries.forEach((entry, index) => {
-    const entryY = legendY + 7 + index * 5.6
+    const entryY = legendY + 6 + index * 4.55
     doc.setFillColor(...entry.color.rgb)
     doc.setDrawColor(213, 221, 232)
-    doc.rect(legendX + 3, entryY, 7, 4.2, 'FD')
-    font(doc, 'normal', 4.2, C.navy)
-    doc.text(entry.label, legendX + 13, entryY + 3)
+    doc.rect(legendX + 2.5, entryY, 5.5, 3.5, 'FD')
+    font(doc, 'normal', 3.2, C.navy)
+    doc.text(entry.label, legendX + 10, entryY + 2.5)
   })
 
-  currentY = mapY + mapHeight + 6
+  currentY = legendY + legendHeight + 4
   font(doc, 'normal', 6.2, C.black)
   doc.text('SitRep generado por la Dirección de Monitoreo de Eventos Adversos de la Secretaría Nacional de Gestión de Riesgos.', PAGE.width / 2, currentY, { align: 'center' })
   currentY += 7
