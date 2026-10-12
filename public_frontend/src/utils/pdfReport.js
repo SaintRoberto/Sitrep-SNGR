@@ -1224,7 +1224,7 @@ function renderSitrepSignoffs(doc, currentY, analystEmail) {
   boxes.forEach((box, index) => {
     const x = PAGE.left + index * (boxWidth + gap)
     doc.setFillColor(217, 217, 217)
-    doc.rect(x, currentY, boxWidth, 5, 'F')
+    doc.rect(x, currentY + 4, boxWidth, 5, 'F')
     font(doc, 'italic', 6.4, C.black)
     doc.text(box.title, x + boxWidth / 2, currentY + 3.5, { align: 'center' })
     font(doc, 'normal', 5.8, C.black)
