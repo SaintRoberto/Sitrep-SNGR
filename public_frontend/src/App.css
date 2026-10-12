@@ -199,7 +199,7 @@ button:disabled {
 
 .hydrometeorology-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 32%);
+  grid-template-columns: minmax(260px, 32%) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -210,11 +210,77 @@ button:disabled {
   line-height: 1.35;
 }
 
-.hydrometeorology-layout img {
+.hydrometeorology-warning-content {
+  display: grid;
+  gap: 8px;
+}
+
+.hydrometeorology-map img,
+.hydrometeorology-warning-content > img {
   display: block;
   width: 100%;
   max-height: 440px;
   object-fit: contain;
+}
+
+.hydrometeorology-warning-content > img {
+  width: min(100%, 520px);
+  margin-inline: auto;
+}
+
+.hydrometeorology-upload {
+  grid-column: 1 / -1;
+}
+
+.file-status {
+  min-height: 20px;
+  color: #475569;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.forecast-maps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.forecast-maps figure {
+  margin: 0;
+  min-width: 0;
+  text-align: center;
+}
+
+.forecast-maps figcaption {
+  margin-bottom: 6px;
+  color: #0a2a6e;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.forecast-maps img {
+  display: block;
+  width: 100%;
+  height: 300px;
+  object-fit: contain;
+}
+
+.forecast-summary {
+  margin: 0 0 12px;
+  color: #24344f;
+  line-height: 1.4;
+}
+
+@media (max-width: 760px) {
+  .form-grid,
+  .hydrometeorology-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .forecast-maps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .water-bodies-section h3 {

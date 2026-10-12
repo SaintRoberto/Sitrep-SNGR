@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { exportEventosLluviasPdf } from './utils/pdfReport'
+import { processHydrometeorologyPdf } from './utils/hydrometeorologyPdf.js'
 import { buildMunicipalCoeSummary, coeActivationClass, uniqueActiveCoeRows } from './utils/coeConfig.js'
 import {
   buildProvinceImpactMap,
@@ -43,7 +44,6 @@ const ENDPOINTS = {
   eventosAltoImpactoLluvias: '/api/public/eventos-alto-impacto-por-lluvias',
 }
 
-const HYDROMETEOROLOGY_IMAGE = '/assets/sitrep-template/situacion-hidrometeorologica.png'
 
 const WATER_BODY_COLS = [
   ['__no__', 'No.'],
@@ -682,6 +682,10 @@ function App() {
   const [coeMunicipalItems, setCoeMunicipalItems] = useState([])
   const [copaeItems, setCopaeItems] = useState([])
   const [eventosAltoImpactoItems, setEventosAltoImpactoItems] = useState([])
+  const [hydrometeorology, setHydrometeorology] = useState(null)
+  const [hydrometeorologyFile, setHydrometeorologyFile] = useState('')
+  const [hydrometeorologyLoading, setHydrometeorologyLoading] = useState(false)
+  const hydrometeorologyRequest = useRef(0)
 
   const buildApiUrl = useCallback((endpointPath, provinciaValue = '') => {
     const base = `${API_BASE_URL}${endpointPath}`
@@ -700,6 +704,30 @@ function App() {
   const validateDateRange = () => {
     if (!desde || !hasta) throw new Error('Selecciona las fechas Desde y Hasta.')
     if (desde > hasta) throw new Error('La fecha Desde no puede ser posterior a la fecha Hasta.')
+  }
+
+  const onHydrometeorologyFile = async (event) => {
+    const input = event.currentTarget
+    const file = input.files?.[0] || null
+    const requestId = hydrometeorologyRequest.current + 1
+    hydrometeorologyRequest.current = requestId
+    setHydrometeorology(null)
+    setHydrometeorologyFile(file?.name || '')
+    setError('')
+    if (!file) return
+    setHydrometeorologyLoading(true)
+    try {
+      const result = await processHydrometeorologyPdf(file)
+      if (hydrometeorologyRequest.current === requestId) setHydrometeorology(result)
+    } catch (err) {
+      if (hydrometeorologyRequest.current === requestId) {
+        setHydrometeorologyFile('')
+        setError(err.message)
+        input.value = ''
+      }
+    } finally {
+      if (hydrometeorologyRequest.current === requestId) setHydrometeorologyLoading(false)
+    }
   }
 
   const items = useMemo(() => responseData?.items ?? [], [responseData])
@@ -1247,6 +1275,11 @@ function App() {
       return
     }
 
+    if (!hydrometeorology) {
+      setError('Selecciona y procesa el boletín PDF del INAMHI antes de generar el SITREP.')
+      return
+    }
+
     setLoading(true)
     setError('')
     try {
@@ -1357,6 +1390,7 @@ function App() {
         personasFallecidasItems: dataPersonasFallecidas?.items || [],
         startDate: desde,
         endDate: hasta,
+        hydrometeorology,
       })
     } catch (err) {
       setError(err.message)
@@ -1422,8 +1456,22 @@ function App() {
             />
           </label>
 
+          {tipo === 'lluvias' && (
+            <label className="hydrometeorology-upload">
+              Boletín hidrometeorológico del INAMHI
+              <input type="file" accept="application/pdf,.pdf" onChange={onHydrometeorologyFile} disabled={hydrometeorologyLoading} />
+              <span className="file-status" aria-live="polite">
+                {hydrometeorologyLoading
+                  ? 'Procesando PDF...'
+                  : hydrometeorology
+                    ? `${hydrometeorology.filename} - ${hydrometeorology.label}`
+                    : hydrometeorologyFile || 'Ningún archivo seleccionado'}
+              </span>
+            </label>
+          )}
+
           <button type="submit" disabled={loading || !API_BASE_URL || !dateRangeValid}>{loading ? 'Consultando...' : 'Consultar'}</button>
-          <button type="button" onClick={onDescargarPrincipal} disabled={loading || !dateRangeValid}>
+          <button type="button" onClick={onDescargarPrincipal} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
             {'Descargar PDF'}
           </button>
           <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled>
@@ -1446,17 +1494,36 @@ function App() {
 
             {tipo === 'lluvias' && (
               <>
-                <div className="block-title pt-4">2. Situación Hidrometeorológica actual</div>
-                <div className="hydrometeorology-layout">
-                  <div className="hydrometeorology-text">
-                    <p>Según el boletín meteorológico estatus <strong>advertencia Nro. 77, emitido</strong> por el INAMHI, amenaza: <strong>LLUVIAS, TORMENTAS ELÉCTRICAS Y RÁFAGAS DE VIENTO</strong>, vigencia desde <strong>15H00 del 01 hasta las 10H00 del 05 de octubre de 2026.</strong></p>
-                    <p>Se presentarán precipitaciones de moderada y ocasional fuerte intensidad con tormentas y ráfagas de viento moderado en la región Litoral, con mayor énfasis en la zona centro y estribación de cordillera occidental.</p>
-                    <p><strong>Región Litoral:</strong> Mayor intensidad en Esmeraldas, Santo Domingo, Los Ríos, Guayas, ciertas zonas de Manabí y El Oro.</p>
-                    <p><strong>Región Interandina:</strong> Mayor intensidad en Pichincha y zonas occidentales de: Imbabura, Cotopaxi, Azuay y Loja.</p>
-                    <p><strong>Región Amazónica:</strong> Eventos ocasionales de moderadas y puntual fuerte intensidad en Sucumbíos, Napo, Pastaza y Morona Santiago.</p>
-                  </div>
-                  <img src={HYDROMETEOROLOGY_IMAGE} alt="Mapa de estimación de precipitación pronosticada" />
-                </div>
+                {hydrometeorology && (
+                  <>
+                    <div className="block-title pt-4">2. Situación Hidrometeorológica actual</div>
+                    {hydrometeorology.type === 'warning' ? (
+                      <div className="hydrometeorology-layout warning-layout">
+                        <div className="hydrometeorology-map">
+                          <img src={hydrometeorology.mapImage} alt="Mapa de amenaza meteorológica extraído del boletín" />
+                        </div>
+                        <div className="hydrometeorology-warning-content">
+                        <div className="hydrometeorology-text">
+                          {hydrometeorology.text.split(/\n\s*\n/).map((paragraph, index) => <p key={`hydro-${index}`}>{paragraph}</p>)}
+                        </div>
+                          <img src={hydrometeorology.tableImage} alt="Tabla de estimación meteorológica extraída del boletín" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="forecast-layout">
+                        <p className="forecast-summary">{hydrometeorology.text}</p>
+                        <div className="forecast-maps">
+                          {hydrometeorology.maps.map((map) => (
+                            <figure key={map.region}>
+                              <figcaption>{map.region}</figcaption>
+                              <img src={map.image} alt={`Mapa meteorológico de la región ${map.region.toLowerCase()}`} />
+                            </figure>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
 
                 {shouldShowWaterBodies && (
                   <div className="water-bodies-section">

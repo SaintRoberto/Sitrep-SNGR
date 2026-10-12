@@ -25,18 +25,9 @@ PAGE.contentWidth = PAGE.width - PAGE.left - PAGE.right
 
 const TEMPLATE_FILES = {
   headerLogo: 'republica-ecuador.png', headerBand: 'franja-superior.png', footer: 'footer-institucional.png',
-  hydrometeorology: 'situacion-hidrometeorologica.png',
   fontRegular: 'BarlowCondensed-Regular.ttf', fontBold: 'BarlowCondensed-SemiBold.ttf',
   fontItalic: 'BarlowCondensed-LightItalic.ttf',
 }
-
-const HYDROMETEOROLOGY_TEXT = [
-  'Según el boletín meteorológico estatus advertencia Nro. 77, emitido por el INAMHI, amenaza: LLUVIAS, TORMENTAS ELÉCTRICAS Y RÁFAGAS DE VIENTO, vigencia desde 15H00 del 01 hasta las 10H00 del 05 de octubre de 2026.',
-  'Se presentarán precipitaciones de moderada y ocasional fuerte intensidad con tormentas y ráfagas de viento moderado en la región Litoral, con mayor énfasis en la zona centro y estribación de cordillera occidental.',
-  'Región Litoral: Mayor intensidad en Esmeraldas, Santo Domingo, Los Ríos, Guayas, ciertas zonas de Manabí y El Oro.',
-  'Región Interandina: Mayor intensidad en Pichincha y zonas occidentales de: Imbabura, Cotopaxi, Azuay y Loja.',
-  'Región Amazónica: Eventos ocasionales de moderadas y puntual fuerte intensidad en Sucumbíos, Napo, Pastaza y Morona Santiago.',
-].join('\n')
 
 const WATER_BODY_COLUMNS = [
   { key: '__no__', label: 'No.', width: 7 },
@@ -383,18 +374,56 @@ function renderAffectationLevel(doc, currentY, level) {
 
 function renderHydrometeorology(doc, currentY, data) {
   if (!data?.text) return currentY
-  currentY = ensurePageSpace(doc, currentY, 72)
+  if (data.type === 'forecast') return renderHydrometeorologyForecast(doc, currentY, data)
+
+  const visualWidth = 47
+  const gap = 4
+  const textWidth = PAGE.contentWidth - visualWidth - gap
+  font(doc, 'normal', 7.4)
+  const lines = doc.splitTextToSize(data.text, textWidth)
+  const textHeight = lines.length * 3.45
+  const mapHeight = data.mapImage ? Math.min(65, visualWidth / (data.mapAspectRatio || 0.78)) : 0
+  const tableWidth = Math.min(textWidth, 78)
+  const tableHeight = data.tableImage ? Math.min(30, tableWidth / (data.tableAspectRatio || 2)) : 0
+  const rightHeight = textHeight + tableHeight + (tableHeight ? 3 : 0)
+  currentY = ensurePageSpace(doc, currentY, Math.max(mapHeight, rightHeight) + 13)
   currentY = renderSectionTitle(doc, currentY + 2, '2', 'Situación Hidrometeorológica actual')
-  const imageWidth = data.image ? (data.imageWidth || 43) : 0
-  font(doc, 'normal', 7.7)
   const startY = currentY
-  currentY = wrapped(doc, data.text, PAGE.left, currentY, PAGE.contentWidth - imageWidth - (imageWidth ? 5 : 0), 3.55)
-  if (data.image) {
-    const imageHeight = data.imageHeight || 61.6
-    doc.addImage(data.image, 'PNG', PAGE.width - PAGE.right - imageWidth, startY, imageWidth, imageHeight)
-    currentY = Math.max(currentY, startY + imageHeight)
+  const textX = PAGE.left + visualWidth + gap
+  font(doc, 'normal', 7.4)
+  if (data.mapImage) doc.addImage(data.mapImage, 'PNG', PAGE.left, startY, visualWidth, mapHeight)
+  doc.text(lines, textX, startY)
+  if (data.tableImage) {
+    const tableX = textX + (textWidth - tableWidth) / 2
+    doc.addImage(data.tableImage, 'PNG', tableX, startY + textHeight + 3, tableWidth, tableHeight)
   }
-  return currentY + 3
+  return startY + Math.max(mapHeight, rightHeight) + 3
+}
+
+function renderHydrometeorologyForecast(doc, currentY, data) {
+  const maps = Array.isArray(data.maps) ? data.maps.slice(0, 4) : []
+  if (maps.length !== 4) return currentY
+  const gap = 2.5
+  const slotWidth = (PAGE.contentWidth - gap * 3) / 4
+  const imageHeights = maps.map((map) => Math.min(64, slotWidth / (map.aspectRatio || 0.72)))
+  const mapsHeight = 5 + Math.max(...imageHeights)
+  font(doc, 'normal', 7.6)
+  const summaryLines = doc.splitTextToSize(data.text, PAGE.contentWidth)
+  const requiredHeight = 13 + mapsHeight + summaryLines.length * 3.6 + 5
+  currentY = ensurePageSpace(doc, currentY, requiredHeight)
+  currentY = renderSectionTitle(doc, currentY + 2, '2', 'Situación Hidrometeorológica actual')
+  const startY = currentY
+  font(doc, 'normal', 7.6, C.black)
+  doc.text(summaryLines, PAGE.left, startY)
+  const mapsY = startY + summaryLines.length * 3.6 + 3
+  maps.forEach((map, index) => {
+    const x = PAGE.left + index * (slotWidth + gap)
+    font(doc, 'bold', 6.7, C.navy)
+    doc.text(map.region, x + slotWidth / 2, mapsY + 2.7, { align: 'center' })
+    const imageHeight = imageHeights[index]
+    doc.addImage(map.image, 'PNG', x, mapsY + 5, slotWidth, imageHeight)
+  })
+  return mapsY + mapsHeight + 3
 }
 
 function renderWaterBodyTable(doc, currentY, rows, title, titleColor) {
@@ -1243,64 +1272,10 @@ function renderProvinceImpactMap(doc, currentY, items, analystEmail) {
   doc.addPage('a4', 'portrait')
   currentY = renderSectionTitle(doc, PAGE.top, '9', 'Mapa de Personas Impactadas por lluvias a Nivel Nacional')
   const summary = buildProvinceImpactMap(items)
-  const sorted = [...items].sort((a, b) => (
-    n(b?.ImpactadasPersonas) - n(a?.ImpactadasPersonas)
-    || n(b?.NumeroEventos) - n(a?.NumeroEventos)
-  ))
-  const maximum = summary.maximum
-  const topProvince = String(sorted[0]?.Provincia || '').trim() || 'máximo'
-  const tableRows = sorted.map((row, index) => [
-    index + 1,
-    String(row?.Provincia || '').trim(),
-    fmt(row?.ImpactadasPersonas),
-    pct(maximum > 0 ? (n(row?.ImpactadasPersonas) / maximum) * 100 : 0),
-  ])
-  tableRows.push(['', 'Total general', fmt(sum(sorted, 'ImpactadasPersonas')), '-'])
-
-  const tableX = PAGE.left
-  const tableY = currentY + 2
-  const tableWidth = 56
-  const gap = 4
-  const mapX = tableX + tableWidth + gap
-  const mapY = tableY
-  const mapWidth = PAGE.contentWidth - tableWidth - gap
+  const mapWidth = 145
+  const mapX = PAGE.left + (PAGE.contentWidth - mapWidth) / 2
+  const mapY = currentY + 2
   const mapHeight = mapWidth
-
-  autoTable(doc, {
-    startY: tableY,
-    head: [[
-      'No.',
-      'Provincia',
-      'Personas\nImpactadas',
-      `% del máximo\n(${topProvince})`,
-    ]],
-    body: tableRows,
-    theme: 'grid',
-    tableWidth,
-    margin: { left: tableX, right: PAGE.width - tableX - tableWidth, top: PAGE.top, bottom: PAGE.height - PAGE.bottom },
-    styles: {
-      font: 'BarlowCondensed', fontSize: 4.7, cellPadding: 0.4, halign: 'center', valign: 'middle',
-      lineWidth: 0.1, lineColor: C.line, minCellHeight: 3.5,
-    },
-    headStyles: { fillColor: C.darkNavy, textColor: C.white, fontStyle: 'bold', minCellHeight: 10, fontSize: 4.8 },
-    alternateRowStyles: { fillColor: [237, 244, 250] },
-    columnStyles: {
-      0: { cellWidth: 5 },
-      1: { cellWidth: 18, halign: 'left' },
-      2: { cellWidth: 14 },
-      3: { cellWidth: 19 },
-    },
-    rowPageBreak: 'avoid',
-    didParseCell: ({ cell, column, row, section }) => {
-      if (section !== 'body') return
-      if (row.index === tableRows.length - 1) {
-        Object.assign(cell.styles, { fillColor: C.darkNavy, textColor: C.white, fontStyle: 'bold' })
-      } else if (column.index === 2) {
-        cell.styles.fillColor = provinceImpactHeat(n(sorted[row.index]?.ImpactadasPersonas), maximum)
-        cell.styles.fontStyle = 'bold'
-      }
-    },
-  })
 
   ECUADOR_PROVINCES.forEach((province) => {
     const value = provinceImpactValue(summary, province.name)
@@ -1313,25 +1288,26 @@ function renderProvinceImpactMap(doc, currentY, items, analystEmail) {
     doc.text(shortProvinceLabel(province.name), mapX + labelX * mapWidth / 600, mapY + labelY * mapHeight / 600, { align: 'center' })
   })
 
-  const legendY = Math.max(doc.lastAutoTable.finalY, mapY + mapHeight) + 4
+  const legendWidth = 74
+  const legendHeight = 43
+  const legendX = mapX + mapWidth - legendWidth - 2
+  const legendY = mapY + mapHeight - legendHeight - 2
   doc.setFillColor(255, 255, 255)
   doc.setDrawColor(143, 177, 216)
-  doc.roundedRect(PAGE.left, legendY, PAGE.contentWidth, 20, 1, 1, 'FD')
+  doc.roundedRect(legendX, legendY, legendWidth, legendHeight, 1, 1, 'FD')
   font(doc, 'bold', 5.2, C.navy)
-  doc.text('Escala de afectación (Población impactada)', PAGE.left + 3, legendY + 4)
+  doc.text('Escala de afectación (Población impactada)', legendX + 3, legendY + 4)
   const legendEntries = impactLegend()
-  const legendSlotWidth = (PAGE.contentWidth - 6) / legendEntries.length
   legendEntries.forEach((entry, index) => {
-    const entryX = PAGE.left + 3 + index * legendSlotWidth
+    const entryY = legendY + 7 + index * 5.6
     doc.setFillColor(...entry.color.rgb)
     doc.setDrawColor(213, 221, 232)
-    doc.rect(entryX, legendY + 7, 7, 6, 'FD')
+    doc.rect(legendX + 3, entryY, 7, 4.2, 'FD')
     font(doc, 'normal', 4.2, C.navy)
-    const lines = doc.splitTextToSize(entry.label, legendSlotWidth - 10)
-    doc.text(lines, entryX + 9, legendY + 9.3)
+    doc.text(entry.label, legendX + 13, entryY + 3)
   })
 
-  currentY = legendY + 25
+  currentY = mapY + mapHeight + 6
   font(doc, 'normal', 6.2, C.black)
   doc.text('SitRep generado por la Dirección de Monitoreo de Eventos Adversos de la Secretaría Nacional de Gestión de Riesgos.', PAGE.width / 2, currentY, { align: 'center' })
   currentY += 7
@@ -1354,8 +1330,7 @@ export async function buildEventosLluviasPdf({
   let currentY = PAGE.firstTop
   currentY = renderImportantPoints(doc, currentY, { items, tipoLluviasItems, asistenciaItems, dpaTotals, metadata })
   currentY = renderAffectationLevel(doc, currentY, affectationLevel)
-  const hydrometeorologyData = hydrometeorology || { text: HYDROMETEOROLOGY_TEXT, image: assets.hydrometeorology }
-  currentY = renderHydrometeorology(doc, currentY, hydrometeorologyData)
+  currentY = renderHydrometeorology(doc, currentY, hydrometeorology)
   currentY = renderWaterBodies(doc, currentY, waterBodiesOverflowed, waterBodiesRising, metadata)
   currentY = renderEventsTable(doc, currentY, tipoLluviasItems, metadata)
   currentY = renderAffectationsSummary(doc, currentY, items, viasCategoriaItems, assets, metadata)
