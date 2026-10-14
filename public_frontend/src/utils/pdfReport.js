@@ -179,7 +179,7 @@ function periodMetadata(publishedAt, sitrepNumber, startDate, endDate) {
   const sourceTime = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`
   return {
     year: end.getFullYear(), startLong, endLong, startNumeric, endNumeric,
-    title: `${sitrepNumber ? `SitRep ${sitrepNumber}` : 'SitRep'} - Por lluvias, del ${startTitle} al ${endTitle}`,
+    title: `${sitrepNumber ? `SitRep No. ${sitrepNumber}` : 'SitRep'} - Por lluvias, del ${startTitle} al ${endTitle}`,
     coverage: `Este informe cubre el período desde el ${startNumeric} hasta el ${endNumeric}`,
     source: `Fuente: Unidades de Monitoreo SNGR - Instituciones del SNDGIRD. ${sourceDate} - ${sourceTime}`,
   }

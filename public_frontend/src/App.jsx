@@ -1405,6 +1405,7 @@ function App() {
         tipoLluviasItems,
         asistenciaItems,
         asistenciaSNDGIRDItems,
+        alojamientosItems,
         dpaTotals,
         alertDeclarations: nivelesAlertaItems,
         emergencyDeclarations: declaratoriasEmergenciaItems,
@@ -1484,11 +1485,11 @@ function App() {
 
           {tipo === 'lluvias' && (
             <label>
-              Nro. de SITREP (opcional)
+              Nro. de SITREP / Infografía (opcional)
               <input
                 type="text"
                 inputMode="numeric"
-                placeholder="Ej: 18"
+                placeholder="Ej: 34"
                 value={sitrepNumber}
                 onChange={(e) => setSitrepNumber(e.target.value)}
               />
@@ -1528,7 +1529,7 @@ function App() {
 
         {items.length > 0 && (
           <section className="preview">
-            <h2>Vista Previa SITREP</h2>
+            <h2>{sitrepNumber.trim() ? `Vista Previa SITREP No. ${sitrepNumber.trim()}` : 'Vista Previa SITREP'}</h2>
 
             <div className="block-title">1. Puntos importantes</div>
             <ul className="important-list">

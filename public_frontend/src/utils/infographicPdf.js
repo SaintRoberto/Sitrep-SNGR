@@ -57,8 +57,14 @@ const METRICS = [
   ['AfectadosKilometros', 'Km de vías\nafectadas', 'metros vias afectados.png', true],
 ]
 
+const PAGE_TWO_ICONS = [
+  'cantidad entregada.png',
+  'alojamientos temporales_mtt4.png',
+  'total familias.png',
+  'total personas.png',
+]
+
 const TEMPLATE_FILES = {
-  footer: 'footer-institucional.png',
   fontMedium: 'BarlowCondensed-Medium.ttf',
   fontBold: 'BarlowCondensed-Bold.ttf',
   fontBlack: 'BarlowCondensed-Black.ttf',
@@ -108,7 +114,7 @@ function metadata(options) {
     end,
     startText: date(start),
     endText: date(end, true),
-    reference: options.sitrepNumber ? `Referencia SITREP No. ${options.sitrepNumber}` : 'Infografía SITREP',
+    reference: options.sitrepNumber ? `Infografía SITREP No. ${options.sitrepNumber}` : 'Infografía SITREP',
   }
 }
 
@@ -154,7 +160,7 @@ async function loadAssets(baseUrl, logoUrl = new URL('../assets/LOGOECUADOR.png'
   const templateValues = await Promise.all(templateEntries.map(([key, file]) => (
     key.startsWith('font') ? asBase64(assetUrl('sitrep-template', file, baseUrl)) : asDataUrl(assetUrl('sitrep-template', file, baseUrl))
   )))
-  const iconFiles = [...new Set(METRICS.map(([, , icon]) => icon))]
+  const iconFiles = [...new Set([...METRICS.map(([, , icon]) => icon), ...PAGE_TWO_ICONS])]
   const icons = await Promise.all(iconFiles.map((file) => asDataUrl(assetUrl('iconos%20SITREP', file, baseUrl), 96)))
   return {
     logo: await asDataUrl(logoUrl),
@@ -175,6 +181,17 @@ function font(doc, style = 'normal', size = 7, color = COLORS.black) {
   doc.setFont('BarlowCondensed', style)
   doc.setFontSize(size)
   doc.setTextColor(...color)
+}
+
+function emphasizedNumber(doc, value, x, y, size, color, align = 'left') {
+  const text = fmt(value)
+  const shadow = color === COLORS.orange ? [166, 72, 21] : [130, 136, 145]
+  font(doc, 'italic', size, shadow)
+  doc.text(text, x + 0.45, y + 0.55, { align })
+  font(doc, 'italic', size, color)
+  doc.text(text, x, y, { align })
+  doc.text(text, x + 0.12, y, { align })
+  doc.text(text, x, y + 0.08, { align })
 }
 
 function sectionBand(doc, x, y, width, title, dark = false) {
@@ -200,16 +217,40 @@ function renderHeader(doc, assets, meta, pageNumber, pageCount) {
   doc.text(`Página ${pageNumber} de ${pageCount}`, 291, 22.3, { align: 'right' })
 }
 
-function renderFooter(doc, assets) {
+function footerPolyline(doc, points) {
+  if (points.length < 2) return
+  const vectors = points.slice(1).map(([x, y], index) => [x - points[index][0], y - points[index][1]])
+  doc.lines(vectors, points[0][0], points[0][1], [1, 1], 'S', false)
+}
+
+function renderFooterLandscape(doc) {
+  doc.setDrawColor(72, 72, 72)
+  doc.setLineWidth(0.18)
+  footerPolyline(doc, [
+    [194, 204.2], [198, 204.1], [200, 202.8], [203, 202.1], [207, 202.4], [210, 203.7],
+    [215, 204], [220, 204], [224, 203.5], [227, 204], [235, 204.1], [239, 203.9],
+    [244, 204.2], [249, 204.2], [251, 202.5], [254, 202.4], [258, 204.2], [266, 204.2],
+    [271, 203.9], [276, 204.1], [281, 203.6], [288, 203.7],
+  ])
+  footerPolyline(doc, [[197, 204.1], [197.7, 202.8], [199.2, 202.2], [201, 202.6]])
+  footerPolyline(doc, [[215, 204], [216.8, 202.9], [218.4, 203], [219.7, 204]])
+  footerPolyline(doc, [[251, 202.5], [252.5, 201.7], [254.2, 201.8], [256, 203]])
+  footerPolyline(doc, [[275, 204], [276, 201.8], [278, 200.8], [280.2, 201.4], [281, 203.6]])
+  footerPolyline(doc, [[278, 200.8], [278.6, 199.6], [280, 199.1], [281.4, 199.5], [282.2, 200.4]])
+}
+
+function renderFooter(doc) {
   doc.setFillColor(196, 81, 16)
   doc.rect(5, PAGE.footerTop - 1.5, 287, 1.4, 'F')
   font(doc, 'bold', 7.2, COLORS.navy)
   doc.text('Producto elaborado por:', 8, 202)
   doc.text('Dirección de Monitoreo de Eventos Adversos', 8, 206)
   font(doc, 'normal', 5.3, COLORS.navy)
-  doc.text('Para acceder a los informes de situación e infografías generadas por la SNGR visite:', 73, 202)
-  doc.text('https://www.gestionderiesgos.gob.ec/informes-de-situacion-actual-por-eventos-adversos-ecuador/', 73, 205)
-  doc.addImage(assets.footer, 'PNG', 165, 198.2, 127, 11.2)
+  doc.text('Para acceder a todos los informes de situación e infografías generadas por la SNGR visite', 71, 201)
+  doc.text('el siguiente enlace:', 71, 203.4)
+  font(doc, 'normal', 4.6, COLORS.blue)
+  doc.text('https://www.gestionderiesgos.gob.ec/informes-de-situacion-actual-por-eventos-adversos-ecuador/', 71, 205.8)
+  renderFooterLandscape(doc)
 }
 
 function decorate(doc, assets, meta) {
@@ -217,7 +258,7 @@ function decorate(doc, assets, meta) {
   for (let page = 1; page <= pages; page += 1) {
     doc.setPage(page)
     renderHeader(doc, assets, meta, page, pages)
-    renderFooter(doc, assets)
+    renderFooter(doc)
   }
 }
 
@@ -311,7 +352,7 @@ function renderMetricCards(doc, options, assets) {
     const cardX = x + index * (width + gap)
     raisedCard(doc, cardX, y, width, 22.5)
     doc.addImage(assets.icons[icon], 'PNG', cardX + 1.2, y + 9, 7.2, 7.2)
-    font(doc, 'bold', 14.5, COLORS.orange)
+    font(doc, 'bold', 20, COLORS.orange)
     doc.text(fmt(sum(options.items, key), Boolean(decimal)), cardX + width / 2, y + 8.4, { align: 'center' })
     font(doc, 'normal', 9.2, COLORS.gray)
     doc.text(label.split('\n'), cardX + 8.8, y + 13.8)
@@ -337,9 +378,9 @@ function drawProvince(doc, province, x, y, width, height, fill) {
 
 function renderMap(doc, items) {
   const x = 8
-  const y = 64.5
-  const width = 87
-  const height = 87
+  const y = 62
+  const width = 97
+  const height = 97
   const summary = buildProvinceImpactMap(items)
   ECUADOR_PROVINCES.forEach((province) => {
     const value = provinceImpactValue(summary, province.name)
@@ -350,10 +391,10 @@ function renderMap(doc, items) {
     font(doc, 'bold', province.name.includes('Santo Domingo') ? 2.2 : 2.8, [45, 56, 72])
     doc.text(shortProvinceLabel(province.name), x + labelX * width / 600, y + labelY * height / 600, { align: 'center' })
   })
-  const legendX = 64.5
-  const legendY = 119.5
-  const legendWidth = 37.5
-  const legendHeight = 29.5
+  const legendX = 78
+  const legendY = 121
+  const legendWidth = 27
+  const legendHeight = 28
   doc.setFillColor(...COLORS.white)
   doc.setDrawColor(143, 177, 216)
   doc.roundedRect(legendX, legendY, legendWidth, legendHeight, 1, 1, 'FD')
@@ -390,7 +431,7 @@ function drawSector(doc, centerX, centerY, radius, start, end, color, explode = 
 }
 
 function renderEventDonut(doc, rows) {
-  sectionBand(doc, 105, 70, 79, 'Cantidad de eventos adversos por lluvias', true)
+  sectionBand(doc, 105, 69, 79, 'Cantidad de eventos adversos por lluvias', true)
   const ranked = EVENT_TYPES.map(([key, label]) => ({ label, value: sum(rows, key) }))
     .filter((item) => item.value > 0).sort((a, b) => b.value - a.value)
   const total = ranked.reduce((acc, item) => acc + item.value, 0)
@@ -407,39 +448,39 @@ function renderEventDonut(doc, rows) {
     angle = end
   })
   const centerX = 145
-  const centerY = 112
-  const radius = 20.5
+  const centerY = 114.5
+  const radius = 24.2
   doc.setFillColor(69, 83, 109); doc.circle(centerX + 0.9, centerY + 1.5, radius + 0.3, 'F')
   slices.forEach((slice, index) => {
-    drawSector(doc, centerX, centerY, radius, slice.start, slice.end, palette[index % palette.length], index < 3 ? 1.05 : 0)
+    drawSector(doc, centerX, centerY, radius, slice.start, slice.end, palette[index % palette.length], index < 2 ? 1.05 : 0)
   })
-  doc.setFillColor(...COLORS.white); doc.circle(centerX, centerY, 9.4, 'F')
-  font(doc, 'bold', 13.5, COLORS.black); doc.text(fmt(total), centerX, centerY - 1.2, { align: 'center' })
-  font(doc, 'bold', 8.7, COLORS.navy); doc.text(['eventos', 'adversos'], centerX, centerY + 3.1, { align: 'center' })
+  doc.setFillColor(...COLORS.white); doc.circle(centerX, centerY, 10.3, 'F')
+  font(doc, 'bold', 14.5, COLORS.black); doc.text(fmt(total), centerX, centerY - 1.2, { align: 'center' })
+  font(doc, 'bold', 9.2, COLORS.navy); doc.text(['eventos', 'adversos'], centerX, centerY + 3.3, { align: 'center' })
 
   slices.slice(0, 2).forEach((slice) => {
-    const labelRadius = 15.2
+    const labelRadius = 18
     const labelX = centerX + Math.cos(slice.middle) * labelRadius
     const labelY = centerY + Math.sin(slice.middle) * labelRadius - 1.2
-    font(doc, 'bold', 7.2, COLORS.white)
+    font(doc, 'bold', 7.6, COLORS.white)
     doc.text([slice.label, fmt(slice.value)], labelX, labelY, { align: 'center' })
   })
-  const smallSlices = slices.slice(2, 8)
-  const leftCount = Math.ceil(smallSlices.length / 2)
+  const smallSlices = slices.slice(2, 9)
   smallSlices.forEach((slice, index) => {
-    const anchorX = centerX + Math.cos(slice.middle) * (radius - 0.8)
-    const anchorY = centerY + Math.sin(slice.middle) * (radius - 0.8)
-    const isLeft = index < leftCount
-    const sideIndex = isLeft ? index : index - leftCount
-    const targetX = isLeft ? 106 : 183
-    const elbowX = isLeft ? 119 : 171
-    const targetY = 81 + sideIndex * 9.2
+    const anchorX = centerX + Math.cos(slice.middle) * (radius - 0.7)
+    const anchorY = centerY + Math.sin(slice.middle) * (radius - 0.7)
+    const radialX = centerX + Math.cos(slice.middle) * (radius + 2.2)
+    const radialY = centerY + Math.sin(slice.middle) * (radius + 2.2)
+    const position = smallSlices.length === 1 ? 0.5 : index / (smallSlices.length - 1)
+    const targetX = 109.5 + position * 71
+    const targetY = 78 + Math.abs(position - 0.5) * 14
+    const labelLines = [...doc.splitTextToSize(slice.label, 11.5), fmt(slice.value)]
+    const connectorY = targetY + (labelLines.length - 1) * 2.15 + 0.8
     doc.setDrawColor(...COLORS.navy); doc.setLineWidth(0.28)
-    doc.line(anchorX, anchorY, elbowX, targetY + 0.5)
-    doc.line(elbowX, targetY + 0.5, targetX, targetY + 0.5)
-    font(doc, 'bold', 6, COLORS.blue)
-    const labelLines = [...doc.splitTextToSize(slice.label, 12.5), fmt(slice.value)]
-    doc.text(labelLines, targetX, targetY, { align: isLeft ? 'left' : 'right' })
+    doc.line(anchorX, anchorY, radialX, radialY)
+    doc.line(radialX, radialY, targetX, connectorY)
+    font(doc, 'bold', 5.7, COLORS.blue)
+    doc.text(labelLines, targetX, targetY, { align: 'center' })
   })
 }
 
@@ -586,86 +627,140 @@ function renderAssistanceChart(doc, x, y, width, height, items, color) {
   }
   const maximum = Math.max(...rows.map((row) => row.value), 1)
   const slot = width / rows.length
+  doc.setDrawColor(218, 224, 232)
+  doc.setLineWidth(0.15)
+  doc.line(x, y + height, x + width, y + height)
+  const labelAngle = 65
+  const labelRadians = labelAngle * Math.PI / 180
   rows.forEach((row, index) => {
     const barHeight = row.value / maximum * height
     const center = x + slot * index + slot / 2
-    doc.setFillColor(...color); doc.rect(center - slot * 0.28, y + height - barHeight, slot * 0.56, barHeight, 'F')
-    font(doc, 'normal', 4.1, COLORS.gray); doc.text(fmt(row.value), center, y + height - barHeight - 1, { align: 'center' })
-    doc.text(doc.splitTextToSize(row.label, 15), center + 1, y + height + 2, { angle: 70, align: 'right' })
+    const barWidth = Math.min(7.5, slot * 0.62)
+    doc.setFillColor(...color)
+    doc.rect(center - barWidth / 2, y + height - barHeight, barWidth, barHeight, 'F')
+    font(doc, 'normal', 4.2, COLORS.gray)
+    doc.text(fmt(row.value), center, y + height - barHeight - 1, { align: 'center' })
+    doc.setDrawColor(...COLORS.gray)
+    doc.setLineWidth(0.12)
+    doc.line(center, y + height, center, y + height + 1.2)
+    font(doc, 'normal', 3.8, COLORS.gray)
+    const labelWidth = doc.getTextWidth(row.label)
+    const labelAnchorY = y + height + 2
+    const rightAlignedX = center + labelWidth * (1 - Math.cos(labelRadians))
+    const rightAlignedY = labelAnchorY + labelWidth * Math.sin(labelRadians)
+    doc.text(row.label, rightAlignedX, rightAlignedY, { angle: labelAngle, align: 'right' })
   })
 }
 
-function renderAssistance(doc, options) {
-  sectionBand(doc, 6, 26, 195, 'Asistencia Humanitaria')
+function renderAssistance(doc, options, assets) {
+  const sectionX = 7
+  const sectionWidth = 139.5
+  sectionBand(doc, sectionX, 26, sectionWidth, 'Asistencia Humanitaria')
   const sngrTotal = sum(options.asistenciaItems, 'Total Bienes')
   const systemTotal = sum(options.asistenciaSNDGIRDItems, 'Total Bienes')
-  font(doc, 'bold', 9.5, COLORS.black)
-  doc.text(doc.splitTextToSize(`Por eventos producidos por lluvias desde el ${metadata(options).startText}, la SNGR y el SNDGIRD han entregado asistencia humanitaria a la población afectada.`, 140), 10, 41)
+  font(doc, 'bold', 8.8, COLORS.black)
+  doc.text(doc.splitTextToSize(`Por eventos producidos por lluvias desde el ${metadata(options).startText} a la fecha, la SNGR y el SNDGIRD han entregado asistencia humanitaria a la población afectada, la cual se detalla a continuación:`, 118), 10, 39)
   const cards = [
-    [12, sngrTotal, 'TOTAL DE BIENES DE ASISTENCIA\nHUMANITARIA ENTREGADO - SNGR'],
-    [90, systemTotal, 'TOTAL DE BIENES DE ASISTENCIA\nHUMANITARIA ENTREGADO - SNDGIRD'],
+    [sngrTotal, 'TOTAL DE BIENES DE ASISTENCIA\nHUMANITARIA ENTREGADO - SNGR'],
+    [systemTotal, 'TOTAL DE BIENES DE ASISTENCIA\nHUMANITARIA ENTREGADO -\nSNDGIRD'],
   ]
-  cards.forEach(([x, value, label]) => {
-    font(doc, 'bold', 24, COLORS.orange); doc.text(fmt(value), x + 22, 68)
-    font(doc, 'bold', 9, COLORS.navy); doc.text(label.split('\n'), x, 79)
+  cards.forEach(([value, label], index) => {
+    const centerX = sectionX + sectionWidth * (index + 0.5) / cards.length
+    doc.addImage(assets.icons['cantidad entregada.png'], 'PNG', centerX - 24, 55, 14, 14)
+    emphasizedNumber(doc, value, centerX - 9, 66.5, 24, COLORS.orange)
+    font(doc, 'bold', 8.3, COLORS.navy); doc.text(label.split('\n'), centerX, 76, { align: 'center' })
   })
-  font(doc, 'bold', 8.2, COLORS.black); doc.text(`La SNGR ha entregado un total de ${fmt(sngrTotal)} bienes:`, 10, 94)
-  renderAssistanceChart(doc, 10, 99, 137, 23, options.asistenciaItems, COLORS.orange)
-  font(doc, 'bold', 8.2, COLORS.black); doc.text(`Las instituciones del SNDGIRD han entregado un total de ${fmt(systemTotal)} bienes:`, 10, 145)
-  renderAssistanceChart(doc, 10, 150, 137, 23, options.asistenciaSNDGIRDItems, [85, 154, 211])
+  font(doc, 'bold', 10, COLORS.black)
+  doc.text(`La SNGR ha entregado a población afectada un total de ${fmt(sngrTotal)} bienes de`, 10, 91)
+  doc.text('asistencia humanitaria, a continuación se detallan algunos de los tipos de bienes:', 10, 95)
+  renderAssistanceChart(doc, 10, 99, sectionWidth - 7, 18, options.asistenciaItems, COLORS.orange)
+  font(doc, 'bold', 10, COLORS.black)
+  doc.text(`Las instituciones del SNDGIRD han entregado un total de ${fmt(systemTotal)} bienes de`, 10, 143)
+  doc.text('asistencia humanitaria:', 10, 147)
+  renderAssistanceChart(doc, 10, 152, sectionWidth - 7, 18, options.asistenciaSNDGIRDItems, [85, 154, 211])
 }
 
 function joinedPlaces(rows, keys) {
   return rows.map((row) => keys.map((key) => row?.[key]).filter(Boolean).join(' - ')).filter(Boolean).join(', ')
 }
 
-function renderCoeAndDeclarations(doc, options) {
-  const x = 205; const width = 86
+function declarationScope(row) {
+  return String(row?.Ambito || row?.Ámbito || row?.Tipo || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+function declarationDetails(rows) {
+  const details = rows.map((row) => row?.Observacion || row?.Descripción || row?.Descripcion
+    || joinedPlaces([row], ['Provincia', 'Canton', 'NivelAlerta'])).filter(Boolean)
+  return [...new Set(details)].join(' ') || 'Sin registros reportados.'
+}
+
+function renderActiveShelters(doc, options, assets, x, width) {
+  sectionBand(doc, x, 140.5, width, 'ALOJAMIENTOS ACTIVOS')
+  const shelters = options.alojamientosItems || []
+  const provinces = [...new Set(shelters.map((row) => row?.Provincia).filter(Boolean))]
+  const metrics = [
+    [shelters.length, 'Total de Alojamientos\nActivados', 'alojamientos temporales_mtt4.png'],
+    [sum(shelters, 'Familias'), 'Número de Familias\nAlojadas', 'total familias.png'],
+    [sum(shelters, 'Personas'), 'Número de Personas\nAlojadas', 'total personas.png'],
+  ]
+  metrics.forEach(([value, label, icon], index) => {
+    const centerX = x + width * (index + 0.5) / metrics.length
+    doc.addImage(assets.icons[icon], 'PNG', centerX - 7, 149.5, 14, 14)
+    emphasizedNumber(doc, value, centerX, 172.5, 30, COLORS.orange, 'center')
+    font(doc, 'bold', 6.8, COLORS.navy)
+    doc.text(label.split('\n'), centerX, 178.5, { align: 'center' })
+  })
+  font(doc, 'normal', 4.6, COLORS.gray)
+  const location = provinces.length ? `Alojamientos implementados en ${provinces.join(', ')}` : 'Sin alojamientos activos reportados.'
+  doc.text(doc.splitTextToSize(location, width / 3 - 5).slice(0, 3), x + width / 6, 188.5, { align: 'center' })
+}
+
+function renderCoeAndDeclarations(doc, options, assets) {
+  const x = 150.5
+  const width = 139.5
   const national = uniqueActiveCoeRows(options.nationalCoeItems, ['TipoCOE'])
   const provincial = uniqueActiveCoeRows(options.provincialCoeItems, ['Provincia'])
   const municipal = buildMunicipalCoeSummary(options.municipalCoeItems)
   const parish = uniqueActiveCoeRows(options.parishCoeItems, ['Provincia', 'Canton', 'Parroquia'])
   sectionBand(doc, x, 26, width, 'COE ACTIVADOS')
   const counts = [
-    [national.length, 'COE\nNacional'], [provincial.length, 'COE Provinciales'],
+    [national.length, 'COE Nacional'], [provincial.length, 'COE Provinciales'],
     [municipal.totalActive, 'COE Cantonales'], [parish.length, 'COE Parroquiales'],
   ]
   counts.forEach(([value, label], index) => {
-    const cx = x + 7 + (index % 2) * 39
-    const cy = 44 + Math.floor(index / 2) * 23
-    font(doc, 'bold', 22, COLORS.black); doc.text(fmt(value), cx, cy + 7)
-    font(doc, 'bold', 7.7, COLORS.navy); doc.text(label.split('\n'), cx + 13, cy + 2)
+    const centerX = x + width * (index + 0.5) / counts.length
+    emphasizedNumber(doc, value, centerX, 43, 30, COLORS.black, 'center')
+    font(doc, 'bold', 7.2, COLORS.navy)
+    doc.text(label, centerX, 48.5, { align: 'center' })
   })
-  font(doc, 'normal', 4.8, COLORS.black)
-  const provinceText = joinedPlaces(provincial, ['Provincia'])
-  doc.text(doc.splitTextToSize(provinceText || 'Sin COE provinciales activos.', width - 5), x + 2.5, 86)
-  const municipalText = joinedPlaces(uniqueActiveCoeRows(options.municipalCoeItems, ['Provincia', 'Canton']), ['Canton', 'Provincia'])
-  doc.text(doc.splitTextToSize(municipalText || 'Sin COE cantonales activos.', width - 5).slice(0, 10), x + 2.5, 99)
 
-  sectionBand(doc, x, 121, width, 'DECLARATORIAS DE ALERTAS Y EMERGENCIAS')
+  sectionBand(doc, x, 52, width, 'DECLARATORIAS DE ALERTAS Y EMERGENCIAS')
   const alertRows = options.alertDeclarations || []
   const emergencyRows = options.emergencyDeclarations || []
-  const alertCount = alertRows.length
-  const emergencyCount = emergencyRows.length
-  const cantonalAlerts = alertRows.filter((row) => String(row?.Ambito || '').toLowerCase().includes('cant'))
+  const rowsByScope = (rows, scope) => rows.filter((row) => declarationScope(row).includes(scope))
   const blocks = [
-    [alertCount, 'Declaratorias de alerta:', alertRows[0]?.Observacion || joinedPlaces(alertRows, ['NivelAlerta', 'Provincia', 'Canton'])],
-    [emergencyCount, 'Declaratorias de emergencia:', emergencyRows[0]?.Observacion || joinedPlaces(emergencyRows, ['Provincia', 'Canton'])],
-    [cantonalAlerts.length, 'Alertas cantonales:', joinedPlaces(cantonalAlerts, ['Provincia', 'Canton', 'NivelAlerta'])],
+    [rowsByScope(alertRows, 'nac'), 'Declaratoria de alerta roja Nacional:', true],
+    [rowsByScope(alertRows, 'prov'), 'Declaratorias de alerta roja Provinciales:', true],
+    [rowsByScope(alertRows, 'cant'), 'Declaratorias de alerta roja Cantonales:', true],
+    [rowsByScope(emergencyRows, 'prov'), 'Declaratorias de Emergencias Provinciales:', false],
+    [rowsByScope(emergencyRows, 'cant'), 'Declaratorias de Emergencias Cantonales:', false],
   ]
-  blocks.forEach(([value, title, detail], index) => {
-    const top = 133 + index * 20.5
-    font(doc, 'bold', 20, COLORS.black); doc.text(fmt(value), x + 2, top + 8)
-    doc.setFillColor(...COLORS.pale); doc.rect(x + 14, top, width - 14, 17.5, 'F')
-    font(doc, 'bold', 8.3, COLORS.red); doc.text(title, x + 16, top + 5)
-    font(doc, 'normal', 5.2, COLORS.black)
-    doc.text(doc.splitTextToSize(String(detail || 'Sin detalle reportado.'), width - 19).slice(0, 4), x + 16, top + 9.2)
+  blocks.forEach(([rows, title, isAlert], index) => {
+    const top = 61 + index * 15.4
+    emphasizedNumber(doc, rows.length, x + 2, top + 8.5, 28, COLORS.black)
+    doc.setFillColor(...COLORS.pale)
+    doc.rect(x + 11, top, width - 14, 13.5, 'F')
+    font(doc, 'bold', 11, isAlert ? COLORS.red : COLORS.black)
+    doc.text(title, x + 16, top + 4.2)
+    font(doc, 'normal', 6.2, COLORS.black)
+    doc.text(doc.splitTextToSize(declarationDetails(rows), width - 19).slice(0, 3), x + 16, top + 7.9)
   })
+  renderActiveShelters(doc, options, assets, x, width)
 }
 
 export async function buildInfographicPdf(options = {}) {
   const normalized = {
-    items: [], tipoLluviasItems: [], asistenciaItems: [], asistenciaSNDGIRDItems: [], dpaTotals: null,
+    items: [], tipoLluviasItems: [], asistenciaItems: [], asistenciaSNDGIRDItems: [], alojamientosItems: [], dpaTotals: null,
     nationalCoeItems: [], provincialCoeItems: [], municipalCoeItems: [], parishCoeItems: [],
     alertDeclarations: [], emergencyDeclarations: [], ...options,
   }
@@ -681,8 +776,8 @@ export async function buildInfographicPdf(options = {}) {
   renderProvinceChart(doc, normalized.items)
   renderHydrometeorology(doc, normalized.hydrometeorology)
   doc.addPage('a4', 'landscape')
-  renderAssistance(doc, normalized)
-  renderCoeAndDeclarations(doc, normalized)
+  renderAssistance(doc, normalized, assets)
+  renderCoeAndDeclarations(doc, normalized, assets)
   decorate(doc, assets, meta)
   return doc
 }
