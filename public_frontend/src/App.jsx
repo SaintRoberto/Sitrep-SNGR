@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { exportEventosLluviasPdf } from './utils/pdfReport'
+import { exportInfographicPdf } from './utils/infographicPdf.js'
 import { processHydrometeorologyPdf } from './utils/hydrometeorologyPdf.js'
 import { buildMunicipalCoeSummary, coeActivationClass, uniqueActiveCoeRows } from './utils/coeConfig.js'
 import {
@@ -657,6 +658,7 @@ function App() {
   const maxSelectableDateTime = useMemo(() => toDateTimeInputValue(new Date()), [])
   const [tipo, setTipo] = useState('lluvias')
   const [provinciaId, setProvinciaId] = useState('')
+  const [sitrepNumber, setSitrepNumber] = useState('')
   const [analystEmail, setAnalystEmail] = useState('')
   const [desde, setDesde] = useState(() => `${new Date().getFullYear()}-01-01T00:00`)
   const [hasta, setHasta] = useState(() => toDateTimeInputValue(new Date()))
@@ -1367,7 +1369,51 @@ function App() {
         analystEmail: analystEmail.trim(),
         dpaTotals: (dataDpa?.items || [])[0] || null,
         provinciaId: provinciaId.trim() || null,
+        sitrepNumber: sitrepNumber.trim() || null,
         personasFallecidasItems: dataPersonasFallecidas?.items || [],
+        startDate: desde,
+        endDate: hasta,
+        hydrometeorology,
+      })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const onDescargarInfografia = async () => {
+    if (tipo !== 'lluvias') {
+      setError('La infografía está disponible para la consulta de eventos por lluvias.')
+      return
+    }
+    if (!items.length) {
+      setError('Primero consulta datos para generar la infografía.')
+      return
+    }
+    if (!hydrometeorology) {
+      setError('Selecciona y procesa el boletín PDF del INAMHI antes de generar la infografía.')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    try {
+      validateDateRange()
+      await exportInfographicPdf({
+        items,
+        tipoLluviasItems,
+        asistenciaItems,
+        asistenciaSNDGIRDItems,
+        dpaTotals,
+        alertDeclarations: nivelesAlertaItems,
+        emergencyDeclarations: declaratoriasEmergenciaItems,
+        nationalCoeItems: coeNacionalItems,
+        provincialCoeItems: coeProvincialItems,
+        municipalCoeItems: coeMunicipalItems,
+        parishCoeItems: copaeItems,
+        provinciaId: provinciaId.trim() || null,
+        sitrepNumber: sitrepNumber.trim() || null,
         startDate: desde,
         endDate: hasta,
         hydrometeorology,
@@ -1437,6 +1483,19 @@ function App() {
           </label>
 
           {tipo === 'lluvias' && (
+            <label>
+              Nro. de SITREP (opcional)
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="Ej: 18"
+                value={sitrepNumber}
+                onChange={(e) => setSitrepNumber(e.target.value)}
+              />
+            </label>
+          )}
+
+          {tipo === 'lluvias' && (
             <label className="hydrometeorology-upload">
               Boletín hidrometeorológico del INAMHI
               <input type="file" accept="application/pdf,.pdf" onChange={onHydrometeorologyFile} disabled={hydrometeorologyLoading} />
@@ -1454,6 +1513,11 @@ function App() {
           <button type="button" onClick={onDescargarPrincipal} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
             {'Descargar PDF'}
           </button>
+          {tipo === 'lluvias' && (
+            <button type="button" className="infographic-button" onClick={onDescargarInfografia} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
+              {'Descargar Infografía PDF'}
+            </button>
+          )}
           <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled>
             {showRawJson ? 'Ocultar JSON' : 'Ver JSON'}
           </button>

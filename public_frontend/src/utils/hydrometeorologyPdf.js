@@ -1,6 +1,8 @@
 import * as pdfjs from 'pdfjs-dist'
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?worker&url'
 
+// Importarlo como Worker hace que Vite lo publique como JavaScript en vez de
+// dejar un .mjs que algunos servidores entregan como application/octet-stream.
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const REGIONS = ['LITORAL', 'INTERANDINA', 'AMAZÓNICA', 'INSULAR']
@@ -348,7 +350,9 @@ export async function processHydrometeorologyPdf(file) {
     throw new Error('El PDF no corresponde a una advertencia ni a un pronóstico por localidades del INAMHI.')
   } catch (error) {
     if (error?.message?.startsWith('El PDF') || error?.message?.startsWith('No se') || error?.message?.includes('pronóstico')) throw error
-    throw new Error('No se pudo abrir o procesar el PDF. Verifica que el archivo no esté corrupto.')
+    console.error('Error al procesar el boletín hidrometeorológico:', error)
+    const detail = String(error?.message || '').trim()
+    throw new Error(`No se pudo abrir o procesar el PDF.${detail ? ` Detalle: ${detail}` : ''}`)
   } finally {
     await pdf?.destroy?.()
   }
