@@ -236,9 +236,19 @@ function renderNarrative(doc, options, meta) {
   doc.text(summary, 9, 29.2)
   doc.text(`Los eventos más recurrentes son: ${rankedText || 'sin datos reportados'}.`, 9, 33.8)
   font(doc, 'normal', FONT_SIZE.text14px, COLORS.navy)
-  doc.text('Las provincias con mayor impacto a personas son:', 9, 38.5)
-  font(doc, 'bold', FONT_SIZE.text14px, COLORS.orange)
-  doc.text(doc.splitTextToSize(provinceRanking.join(', ') || 'Sin datos reportados', 210), 69, 38.5)
+  const provinceLead = 'Las provincias con mayor impacto a personas son:'
+  const provinceLeadX = 9
+  doc.text(provinceLead, provinceLeadX, 38.5)
+  const provinceNames = provinceRanking.join(', ') || 'Sin datos reportados'
+  const provinceNamesX = provinceLeadX + doc.getTextWidth(provinceLead) + 1.5
+  const provinceNamesWidth = PAGE.width - PAGE.margin - provinceNamesX
+  let provinceNamesSize = FONT_SIZE.text14px
+  font(doc, 'bold', provinceNamesSize, COLORS.orange)
+  while (provinceNamesSize > 8 && doc.getTextWidth(provinceNames) > provinceNamesWidth) {
+    provinceNamesSize -= 0.25
+    font(doc, 'bold', provinceNamesSize, COLORS.orange)
+  }
+  doc.text(provinceNames, provinceNamesX, 38.5)
 }
 
 function raisedCard(doc, x, y, width, height) {
@@ -254,17 +264,57 @@ function raisedCard(doc, x, y, width, height) {
 
 function renderMetricCards(doc, options, assets) {
   const y = 43
-  const x = 51.5
-  const width = 29.2
-  const gap = 0.65
-  METRICS.forEach(([key, label, icon, decimal], index) => {
+  const peopleMetrics = METRICS.filter(([key]) => ['AfectadosPersonas', 'DamnificadosPersonas'].includes(key))
+  const remainingMetrics = METRICS.filter(([key]) => !['AfectadosPersonas', 'DamnificadosPersonas'].includes(key))
+  const peopleX = 13
+  const peopleWidth = 50
+  const peopleGap = 1.2
+  const peopleHeight = 13.7
+
+  peopleMetrics.forEach(([key, label, icon], index) => {
+    const cardX = peopleX + index * (peopleWidth + peopleGap)
+    const accent = index === 0 ? COLORS.orange : COLORS.red
+    raisedCard(doc, cardX, y, peopleWidth, peopleHeight)
+    doc.addImage(assets.icons[icon], 'PNG', cardX + 1.7, y + 3.2, 8, 8)
+    font(doc, 'bold', 18, accent)
+    doc.text(fmt(sum(options.items, key)), cardX + 10.5, y + 8.5)
+    font(doc, 'normal', 8.8, accent)
+    doc.text(label.split('\n'), cardX + 34.5, y + 5.2)
+  })
+
+  const totalAffected = sum(options.items, 'AfectadosPersonas')
+  const totalDamaged = sum(options.items, 'DamnificadosPersonas')
+  const totalX = 34
+  const totalY = 58.7
+  const totalWidth = 56
+  const totalHeight = 8.2
+  raisedCard(doc, totalX, totalY, totalWidth, totalHeight)
+  doc.setDrawColor(...COLORS.red)
+  doc.setLineWidth(0.22)
+  peopleMetrics.forEach((_, index) => {
+    const centerX = peopleX + index * (peopleWidth + peopleGap) + peopleWidth / 2
+    doc.line(centerX, y + peopleHeight, centerX, totalY - 1.4)
+    doc.line(centerX - 0.8, totalY - 2.4, centerX, totalY - 1.4)
+    doc.line(centerX + 0.8, totalY - 2.4, centerX, totalY - 1.4)
+  })
+  font(doc, 'bold', 6.3, COLORS.black)
+  doc.text('TOTAL de Personas impactadas:', totalX + 4.5, totalY + 3.5)
+  font(doc, 'normal', 4.8, COLORS.black)
+  doc.text('(afectados + damnificados)', totalX + 10.5, totalY + 6.2)
+  font(doc, 'black', 11.5, COLORS.black)
+  doc.text(fmt(totalAffected + totalDamaged), totalX + totalWidth - 4, totalY + 5.4, { align: 'right' })
+
+  const x = 133
+  const width = 25.5
+  const gap = 0.7
+  remainingMetrics.forEach(([key, label, icon, decimal], index) => {
     const cardX = x + index * (width + gap)
     raisedCard(doc, cardX, y, width, 22.5)
-    doc.addImage(assets.icons[icon], 'PNG', cardX + 1.4, y + 8.9, 7.8, 7.8)
+    doc.addImage(assets.icons[icon], 'PNG', cardX + 1.2, y + 9, 7.2, 7.2)
     font(doc, 'bold', 14.5, COLORS.orange)
     doc.text(fmt(sum(options.items, key), Boolean(decimal)), cardX + width / 2, y + 8.4, { align: 'center' })
-    font(doc, 'normal', FONT_SIZE.text14px, COLORS.gray)
-    doc.text(label.split('\n'), cardX + 10, y + 13.8)
+    font(doc, 'normal', 9.2, COLORS.gray)
+    doc.text(label.split('\n'), cardX + 8.8, y + 13.8)
   })
 }
 
@@ -286,10 +336,10 @@ function drawProvince(doc, province, x, y, width, height, fill) {
 }
 
 function renderMap(doc, items) {
-  const x = 10
-  const y = 65
-  const width = 74
-  const height = 74
+  const x = 8
+  const y = 64.5
+  const width = 87
+  const height = 87
   const summary = buildProvinceImpactMap(items)
   ECUADOR_PROVINCES.forEach((province) => {
     const value = provinceImpactValue(summary, province.name)
@@ -300,26 +350,24 @@ function renderMap(doc, items) {
     font(doc, 'bold', province.name.includes('Santo Domingo') ? 2.2 : 2.8, [45, 56, 72])
     doc.text(shortProvinceLabel(province.name), x + labelX * width / 600, y + labelY * height / 600, { align: 'center' })
   })
-  const legendX = 10
-  const legendY = 139.5
-  const legendWidth = 92
-  const legendHeight = 10.5
+  const legendX = 64.5
+  const legendY = 119.5
+  const legendWidth = 37.5
+  const legendHeight = 29.5
   doc.setFillColor(...COLORS.white)
   doc.setDrawColor(143, 177, 216)
   doc.roundedRect(legendX, legendY, legendWidth, legendHeight, 1, 1, 'FD')
-  font(doc, 'bold', 6, COLORS.navy)
-  doc.text('Escala de afectación', legendX + 2.3, legendY + 3.6)
-  doc.text('(Población impactada)', legendX + 2.3, legendY + 7.1)
+  font(doc, 'bold', 4.6, COLORS.navy)
+  doc.text('Escala de afectación', legendX + 2.3, legendY + 3.5)
+  doc.text('(Población impactada)', legendX + 2.3, legendY + 6.2)
   impactLegend().forEach((entry, index) => {
-    const column = Math.floor(index / 3)
-    const row = index % 3
-    const rowX = legendX + 25 + column * 33
-    const rowY = legendY + 1.1 + row * 3.05
+    const rowX = legendX + 2.3
+    const rowY = legendY + 7.8 + index * 3.35
     doc.setFillColor(...entry.color.rgb)
     doc.setDrawColor(213, 221, 232)
-    doc.rect(rowX, rowY, 4.6, 2.35, 'FD')
-    font(doc, 'normal', 5.5, COLORS.navy)
-    doc.text(entry.label, rowX + 5.7, rowY + 1.8)
+    doc.rect(rowX, rowY, 4.2, 2.4, 'FD')
+    font(doc, 'normal', 3.5, COLORS.navy)
+    doc.text(entry.label, rowX + 5.3, rowY + 1.75)
   })
 }
 
@@ -396,7 +444,7 @@ function renderEventDonut(doc, rows) {
 }
 
 function renderProvinceTable(doc, items) {
-  sectionBand(doc, 190, 70, 100, 'Detalle de afectaciones a nivel provincial', true)
+  sectionBand(doc, 190, 69, 100, 'Detalle de afectaciones a nivel provincial', true)
   const rows = items.map((row) => ({
     province: String(row?.Provincia || '').replace(/Santo Domingo de (los|Los) Ts[aá]chilas/i, 'Santo Domingo'),
     deceased: n(row?.Fallecidos),
@@ -409,7 +457,7 @@ function renderProvinceTable(doc, items) {
   body.push(['Total', fmt(rows.reduce((a, x) => a + x.deceased, 0)), fmt(rows.reduce((a, x) => a + x.impacted, 0)), fmt(rows.reduce((a, x) => a + x.affectedHomes, 0)), fmt(rows.reduce((a, x) => a + x.destroyedHomes, 0)), fmt(rows.reduce((a, x) => a + x.roads, 0), true)])
   const maximum = Math.max(1, ...rows.map((row) => row.impacted))
   autoTable(doc, {
-    startY: 77,
+    startY: 75,
     margin: { left: 190, right: 7 },
     tableWidth: 100,
     head: [['Provincia', 'Personas\nfallecidas', 'Personas\nimpactadas', 'Viviendas\nafectadas', 'Viviendas\ndestruidas', 'Km vías\nafectadas']],
