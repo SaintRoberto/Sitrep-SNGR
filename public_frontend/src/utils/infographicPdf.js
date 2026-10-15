@@ -58,11 +58,12 @@ const METRICS = [
 ]
 
 const PAGE_TWO_ICONS = [
-  'cantidad entregada.png',
   'alojamientos temporales_mtt4.png',
   'total familias.png',
   'total personas.png',
 ]
+
+const ASSISTANCE_LOGO_URL = new URL('../assets/asistenciaLogo.png', import.meta.url).href
 
 const TEMPLATE_FILES = {
   fontMedium: 'BarlowCondensed-Medium.ttf',
@@ -164,6 +165,7 @@ async function loadAssets(baseUrl, logoUrl = new URL('../assets/LOGOECUADOR.png'
   const icons = await Promise.all(iconFiles.map((file) => asDataUrl(assetUrl('iconos%20SITREP', file, baseUrl), 96)))
   return {
     logo: await asDataUrl(logoUrl),
+    assistanceLogo: await asDataUrl(ASSISTANCE_LOGO_URL, 96),
     ...Object.fromEntries(templateEntries.map(([key], index) => [key, templateValues[index]])),
     icons: Object.fromEntries(iconFiles.map((file, index) => [file, icons[index]])),
   }
@@ -189,9 +191,10 @@ function emphasizedNumber(doc, value, x, y, size, color, align = 'left') {
   font(doc, 'italic', size, shadow)
   doc.text(text, x + 0.45, y + 0.55, { align })
   font(doc, 'italic', size, color)
-  doc.text(text, x, y, { align })
-  doc.text(text, x + 0.12, y, { align })
-  doc.text(text, x, y + 0.08, { align })
+  doc.setDrawColor(...color)
+  doc.setLineWidth(0.18)
+  doc.text(text, x, y, { align, renderingMode: 'fillThenStroke' })
+  doc.text(text, x + 0.1, y, { align })
 }
 
 function sectionBand(doc, x, y, width, title, dark = false) {
@@ -359,12 +362,12 @@ function renderMetricCards(doc, options, assets) {
   })
 }
 
-function drawProvince(doc, province, x, y, width, height, fill) {
+function drawProvince(doc, province, x, y, width, height, fill, stroke = [83, 98, 117], lineWidth = 0.12) {
   const scaleX = width / 600
   const scaleY = height / 600
   doc.setFillColor(...fill)
-  doc.setDrawColor(83, 98, 117)
-  doc.setLineWidth(0.12)
+  doc.setDrawColor(...stroke)
+  doc.setLineWidth(lineWidth)
   province.paths.forEach((polygon) => {
     const ring = polygon[0] || []
     if (ring.length < 3) return
@@ -376,12 +379,30 @@ function drawProvince(doc, province, x, y, width, height, fill) {
   })
 }
 
+function drawMapShadow(doc, x, y, width, height) {
+  const shadow = [175, 180, 188]
+  ECUADOR_PROVINCES.forEach((province) => {
+    drawProvince(
+      doc,
+      province,
+      x + 1.2,
+      y + 1.4,
+      width,
+      height,
+      shadow,
+      shadow,
+      0.08,
+    )
+  })
+}
+
 function renderMap(doc, items) {
   const x = 8
   const y = 62
   const width = 97
   const height = 97
   const summary = buildProvinceImpactMap(items)
+  drawMapShadow(doc, x, y, width, height)
   ECUADOR_PROVINCES.forEach((province) => {
     const value = provinceImpactValue(summary, province.name)
     drawProvince(doc, province, x, y, width, height, impactColor(value, summary.maximum, value !== undefined).rgb)
@@ -506,7 +527,7 @@ function renderProvinceTable(doc, items) {
     theme: 'plain',
     styles: { font: 'BarlowCondensed', fontSize: 6.6, cellPadding: 0.08, halign: 'center', minCellHeight: 2.55 },
     headStyles: { fillColor: COLORS.white, textColor: COLORS.navy, fontStyle: 'bold', fontSize: 6.3, lineWidth: 0 },
-    alternateRowStyles: { fillColor: COLORS.lightOrange },
+    alternateRowStyles: { fillColor: [241, 246, 252] },
     columnStyles: { 0: { halign: 'left', cellWidth: 22 }, 1: { cellWidth: 11 }, 2: { cellWidth: 16.75 }, 3: { cellWidth: 16.75 }, 4: { cellWidth: 16.75 }, 5: { cellWidth: 16.75 } },
     didParseCell: ({ cell, row, column, section }) => {
       if (section !== 'body') return
@@ -666,9 +687,9 @@ function renderAssistance(doc, options, assets) {
   ]
   cards.forEach(([value, label], index) => {
     const centerX = sectionX + sectionWidth * (index + 0.5) / cards.length
-    doc.addImage(assets.icons['cantidad entregada.png'], 'PNG', centerX - 24, 55, 14, 14)
-    emphasizedNumber(doc, value, centerX - 9, 66.5, 24, COLORS.orange)
-    font(doc, 'bold', 8.3, COLORS.navy); doc.text(label.split('\n'), centerX, 76, { align: 'center' })
+    doc.addImage(assets.assistanceLogo, 'PNG', centerX - 21, 55, 11, 12)
+    emphasizedNumber(doc, value, centerX - 9, 66.5, 30, COLORS.orange)
+    font(doc, 'bold', 8.3, COLORS.navy); doc.text(label.split('\n'), centerX, 73, { align: 'center' })
   })
   font(doc, 'bold', 10, COLORS.black)
   doc.text(`La SNGR ha entregado a población afectada un total de ${fmt(sngrTotal)} bienes de`, 10, 91)
@@ -730,7 +751,7 @@ function renderCoeAndDeclarations(doc, options, assets) {
   counts.forEach(([value, label], index) => {
     const centerX = x + width * (index + 0.5) / counts.length
     emphasizedNumber(doc, value, centerX, 43, 30, COLORS.black, 'center')
-    font(doc, 'bold', 7.2, COLORS.navy)
+    font(doc, 'bold', 8, COLORS.navy)
     doc.text(label, centerX, 48.5, { align: 'center' })
   })
 
