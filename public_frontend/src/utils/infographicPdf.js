@@ -614,6 +614,42 @@ function renderHydrometeorology(doc, data) {
     font(doc, 'normal', FONT_SIZE.text14px, COLORS.gray); doc.text('No se adjuntó boletín hidrometeorológico.', 132, 165)
     return
   }
+  if (data.type === 'forecast') {
+    const regionOrder = ['LITORAL', 'INTERANDINA', 'AMAZÓNICA', 'INSULAR']
+    const maps = regionOrder.map((region) => (
+      data.maps?.find((map) => String(map.region || '').toUpperCase() === region)
+    )).filter(Boolean)
+    const contentX = 132
+    const contentWidth = 155
+    font(doc, 'normal', 6.2, COLORS.black)
+    const lines = doc.splitTextToSize(String(data.text || data.label || 'Pronóstico procesado.'), contentWidth).slice(0, 3)
+    doc.text(lines, contentX, 162)
+    if (maps.length !== 4) return
+
+    const gap = 2
+    const slotWidth = (contentWidth - gap * 3) / 4
+    const mapsY = 161 + lines.length * 2.1
+    const imageTop = mapsY + 3.2
+    const imageBoxHeight = Math.max(8, 195.5 - imageTop)
+    maps.forEach((map, index) => {
+      const slotX = contentX + index * (slotWidth + gap)
+      font(doc, 'bold', 5.8, COLORS.navy)
+      doc.text(map.region, slotX + slotWidth / 2, mapsY + 2.7, { align: 'center' })
+      const properties = doc.getImageProperties(map.image)
+      const scale = Math.min((slotWidth - 1) / properties.width, imageBoxHeight / properties.height)
+      const imageWidth = properties.width * scale
+      const imageHeight = properties.height * scale
+      doc.addImage(
+        map.image,
+        properties.fileType || 'PNG',
+        slotX + (slotWidth - imageWidth) / 2,
+        imageTop,
+        imageWidth,
+        imageHeight,
+      )
+    })
+    return
+  }
   const image = data.mapImage || data.images?.[0] || data.tableImage
   const textWidth = image ? 125 : 154
   font(doc, 'normal', 8.2, COLORS.black)

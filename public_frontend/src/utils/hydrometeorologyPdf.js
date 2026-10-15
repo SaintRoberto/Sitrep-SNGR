@@ -1,9 +1,9 @@
 import * as pdfjs from 'pdfjs-dist'
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?worker&url'
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker'
 
-// Importarlo como Worker hace que Vite lo publique como JavaScript en vez de
-// dejar un .mjs que algunos servidores entregan como application/octet-stream.
-pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+// Vite crea y publica un Worker real para evitar el fallback "fake worker",
+// cuya importación dinámica falla en desarrollo y en servidores con MIME estricto.
+pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker()
 
 const REGIONS = ['LITORAL', 'INTERANDINA', 'AMAZÓNICA', 'INSULAR']
 const MAX_FILE_SIZE = 30 * 1024 * 1024
