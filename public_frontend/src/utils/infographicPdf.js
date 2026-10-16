@@ -68,6 +68,7 @@ const ASSISTANCE_LOGO_URL = new URL('../assets/asistenciaLogo.png', import.meta.
 const TEMPLATE_FILES = {
   fontMedium: 'BarlowCondensed-Medium.ttf',
   fontBold: 'BarlowCondensed-Bold.ttf',
+  fontBoldItalic: 'BarlowCondensed-BoldItalic.ttf',
   fontBlack: 'BarlowCondensed-Black.ttf',
   fontItalic: 'BarlowCondensed-LightItalic.ttf',
 }
@@ -110,12 +111,21 @@ function metadata(options) {
     day: '2-digit', month: '2-digit', year: 'numeric',
     ...(withTime ? { hour: '2-digit', minute: '2-digit', hour12: false } : {}),
   })
+  const headerDate = (value, withTime = false) => {
+    const day = String(value.getDate()).padStart(2, '0')
+    const month = String(value.getMonth() + 1).padStart(2, '0')
+    const year = value.getFullYear()
+    const time = `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`
+    return `${day}-${month}-${year}${withTime ? ` ${time}` : ''}`
+  }
   return {
     start,
     end,
     startText: date(start),
     endText: date(end, true),
-    reference: options.sitrepNumber ? `Infografía SITREP No. ${options.sitrepNumber}` : 'Infografía SITREP',
+    headerStartText: headerDate(start),
+    headerEndText: headerDate(end, true),
+    reference: options.sitrepNumber ? `Referencia SITREP No. ${options.sitrepNumber}` : 'Referencia SITREP',
   }
 }
 
@@ -172,7 +182,7 @@ async function loadAssets(baseUrl, logoUrl = new URL('../assets/LOGOECUADOR.png'
 }
 
 function registerFonts(doc, assets) {
-  [['Medium', 'normal', assets.fontMedium], ['Bold', 'bold', assets.fontBold], ['Black', 'black', assets.fontBlack], ['Italic', 'italic', assets.fontItalic]]
+  [['Medium', 'normal', assets.fontMedium], ['Bold', 'bold', assets.fontBold], ['BoldItalic', 'bolditalic', assets.fontBoldItalic], ['Black', 'black', assets.fontBlack], ['Italic', 'italic', assets.fontItalic]]
     .forEach(([name, style, source]) => {
       doc.addFileToVFS(`BarlowCondensed-${name}.ttf`, source)
       doc.addFont(`BarlowCondensed-${name}.ttf`, 'BarlowCondensed', style)
@@ -207,14 +217,9 @@ function sectionBand(doc, x, y, width, title, dark = false) {
 function renderHeader(doc, assets, meta, pageNumber, pageCount) {
   doc.setFillColor(...COLORS.navy)
   doc.roundedRect(5, 4, 222, 20, 3, 3, 'F')
-  const titleLead = 'AFECTACIONES POR LLUVIAS EN EL ECUADOR DESDE DECLARACIÓN '
-  font(doc, 'black', FONT_SIZE.heading24px, COLORS.white)
-  doc.text(titleLead, 17, 12.2)
-  const alertX = 17 + doc.getTextWidth(titleLead)
-  font(doc, 'black', FONT_SIZE.heading24px, COLORS.red)
-  doc.text('ALERTA ROJA', alertX, 12.2)
-  font(doc, 'black', FONT_SIZE.heading24px, COLORS.white)
-  doc.text(`Inicio ${meta.startText} al ${meta.endText}  ${meta.reference}`, 17, 19)
+  font(doc, 'bolditalic', FONT_SIZE.heading24px, COLORS.white)
+  doc.text('AFECTACIONES POR LLUVIAS CON INCIDENCIA DEL EVENTO EL NIÑO EN EL ECUADOR', 17, 12.2)
+  doc.text(`Inicio ${meta.headerStartText} al ${meta.headerEndText} ${meta.reference}`, 17, 19)
   doc.addImage(assets.logo, 'PNG', 231, 7, 61, 10.3)
   font(doc, 'bold', 6.4, COLORS.navy)
   doc.text(`Página ${pageNumber} de ${pageCount}`, 291, 22.3, { align: 'right' })

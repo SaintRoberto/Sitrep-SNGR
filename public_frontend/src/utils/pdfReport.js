@@ -122,6 +122,28 @@ const INDICATORS = [
 const GROUPS = ['Afectación a Personas', 'Afectación a Viviendas',
   'Afectación a servicios básicos esenciales e infraestructura', 'Infraestructura sectorial', 'Afectaciones a medios de vida']
 
+const REQUIRED_IMPORTANT_POINTS = [
+  [
+    { text: 'Mediante Informe Técnico Ejecutivo' },
+    { text: 'ERFEN', bold: true },
+    { text: 'Nro. 007-2026, del 28 de agosto 2026,' },
+    { text: 'el Comité Nacional ERFEN (CN-ERFEN) declaró oficialmente el evento El Niño en el país.', bold: true },
+    { text: 'Con base a este antecedente, la' },
+    { text: 'SNGR', bold: true },
+    { text: 'emitió, el 29 de agosto de 2026, la declaratoria por nivel de' },
+    { text: 'ALERTA ROJA', bold: true, highlight: true },
+    { text: 'a nivel nacional, con base a la' },
+    { text: 'Resolución Nro. SNGR-238-2026.', bold: true },
+  ],
+  [
+    { text: 'Durante los primeros días de octubre,' },
+    { text: 'INAMHI', bold: true },
+    { text: 'informó que, de acuerdo con las proyecciones realizadas sobre la evolución de las lluvias asociadas al' },
+    { text: 'El Niño, el Ecuador', bold: true },
+    { text: 'ingresó a una etapa inicial de transición y acoplamiento atmosférico, en respuesta a las condiciones cálidas presentes en el Pacífico.' },
+  ],
+]
+
 function n(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0
   const raw = String(value ?? '').trim()
@@ -142,6 +164,10 @@ function pct(value) {
 
 function humanize(key) {
   return String(key).replaceAll('_', ' ').replace(/([a-záéíóúñ])([A-ZÁÉÍÓÚÑ])/g, '$1 $2').trim()
+}
+
+function isBoldEntityColumn(column) {
+  return /provincia|cant[oó]n|instituci[oó]n/i.test(`${column?.key || ''} ${column?.label || ''}`)
 }
 
 function has(items, key) {
@@ -168,18 +194,15 @@ function periodMetadata(publishedAt, sitrepNumber, startDate, endDate) {
   const end = localDate(endDate, publishedAt)
   const longOptions = { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }
   const numericOptions = { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }
-  const titleOptions = { day: 'numeric', month: 'long', year: 'numeric' }
   const startLong = start.toLocaleString('es-EC', longOptions)
   const endLong = end.toLocaleString('es-EC', longOptions)
   const startNumeric = start.toLocaleString('es-EC', numericOptions)
   const endNumeric = end.toLocaleString('es-EC', numericOptions)
-  const startTitle = start.toLocaleDateString('es-EC', titleOptions)
-  const endTitle = end.toLocaleDateString('es-EC', titleOptions)
   const sourceDate = end.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const sourceTime = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`
   return {
     year: end.getFullYear(), startLong, endLong, startNumeric, endNumeric,
-    title: `${sitrepNumber ? `SitRep No. ${sitrepNumber}` : 'SitRep'} - Por lluvias, del ${startTitle} al ${endTitle}`,
+    title: `${sitrepNumber ? `SitRep ${sitrepNumber}` : 'SitRep'} – Lluvias con incidencia del Evento El Niño, del 29 de agosto de 2026 a la fecha`,
     coverage: `Este informe cubre el período desde el ${startNumeric} hasta el ${endNumeric}`,
     source: `Fuente: Unidades de Monitoreo SNGR - Instituciones del SNDGIRD. ${sourceDate} - ${sourceTime}`,
   }
@@ -310,7 +333,7 @@ function renderSectionTitle(doc, currentY, number, title) {
 
 function sourceLine(doc, currentY, metadata, note = '') {
   currentY = ensurePageSpace(doc, currentY, 6)
-  font(doc, 'normal', 5.7, C.black)
+  font(doc, 'bold', 5.7, C.black)
   doc.text(`${metadata.source}${note}`, PAGE.width / 2, currentY, { align: 'center' })
   return currentY + 4
 }
@@ -330,46 +353,139 @@ function importantPoints({ items, tipoLluviasItems, asistenciaItems, dpaTotals, 
     const provinces = Number.isFinite(Number(dpaTotals?.TotalProvincias)) ? Number(dpaTotals.TotalProvincias) : unique(items, ['Provincia'])
     const cantons = Number.isFinite(Number(dpaTotals?.TotalCantones)) ? Number(dpaTotals.TotalCantones) : unique(items, ['Canton', 'CantonNombre'])
     const parishes = Number.isFinite(Number(dpaTotals?.TotalParroquias)) ? Number(dpaTotals.TotalParroquias) : unique(items, ['Parroquia', 'ParroquiaNombre'])
-    let text = `Desde el ${metadata.startLong} hasta el ${metadata.endLong} se han registrado ${fmt(total)} eventos adversos por lluvias`
-    if (provinces) text += ` afectando a ${fmt(provinces)} provincias`
-    if (cantons) text += `, ${fmt(cantons)} cantones`
-    if (parishes) text += ` y ${fmt(parishes)} parroquias`
-    if (types.length) text += `. Los eventos más recurrentes corresponden a: ${types.map((type) => `${type.label.toLowerCase()} (${pct((type.total / total) * 100)})`).join(', ')}`
-    bullets.push(`${text}.`)
+    const segments = [
+      { text: 'Desde el 1 de enero de 2026 a las 00:00 hasta la fecha, se han registrado' },
+      { text: fmt(total), bold: true },
+      { text: 'eventos adversos por lluvias' },
+    ]
+    if (provinces || cantons || parishes) segments.push({ text: 'afectando a' })
+    if (provinces) segments.push({ text: `${fmt(provinces)} provincias${cantons || parishes ? ',' : '.'}`, bold: true })
+    if (cantons) segments.push({ text: `${fmt(cantons)} cantones${parishes ? ' y' : '.'}`, bold: true })
+    if (parishes) segments.push({ text: `${fmt(parishes)} parroquias.`, bold: true })
+    if (types.length) {
+      segments.push({ text: 'Los eventos más recurrentes corresponden a:' })
+      types.forEach((type, index) => segments.push({
+        text: `${type.label.toLowerCase()} (${pct((type.total / total) * 100)})${index === types.length - 1 ? '.' : ','}`,
+        bold: true,
+      }))
+    }
+    bullets.push(segments)
   }
   const top = ranking(items)
-  if (top.length) bullets.push(`En lo que va del año ${metadata.year}, las provincias con mayor impacto a la población son: ${top.map((row) => row.provincia).join(', ')}.`)
-  if (has(items, 'ImpactadasPersonas')) bullets.push(`En total, los eventos reportados impactaron a ${fmt(sum(items, 'ImpactadasPersonas'))} personas.`)
+  if (top.length) bullets.push([
+    { text: `En lo que va del año ${metadata.year}, las provincias con mayor impacto a la población son:` },
+    { text: `${top.map((row) => row.provincia).join(', ')}.`, bold: true },
+  ])
+  if (has(items, 'ImpactadasPersonas')) bullets.push([
+    { text: 'En total, los eventos reportados impactaron a' },
+    { text: `${fmt(sum(items, 'ImpactadasPersonas'))} personas.`, bold: true },
+  ])
   const goods = sum(asistenciaItems, 'Total Bienes')
-  if (goods > 0) bullets.push(`La SNGR ha entregado a la población un total de ${fmt(goods)} bienes de asistencia humanitaria${unique(asistenciaItems, ['Provincias', 'Provincia']) ? ` en ${fmt(unique(asistenciaItems, ['Provincias', 'Provincia']))} provincias` : ''}.`)
+  if (goods > 0) {
+    const assistedProvinces = unique(asistenciaItems, ['Provincias', 'Provincia'])
+    bullets.push([
+      { text: 'La SNGR', bold: true },
+      { text: 'ha entregado a la población un total de' },
+      { text: `${fmt(goods)} bienes de asistencia humanitaria`, bold: true },
+      ...(assistedProvinces ? [{ text: `en ${fmt(assistedProvinces)} provincias`, bold: true }] : []),
+      { text: '.' },
+    ])
+  }
   return bullets
+}
+
+function renderRequiredImportantPoint(doc, currentY, segments, width) {
+  const left = PAGE.left + 8
+  const size = 8.7
+  const lineHeight = 4.05
+  let x = left
+  let y = currentY
+
+  doc.setFillColor(...C.darkNavy)
+  doc.circle(PAGE.left + 1.2, y - 1.3, 0.65, 'F')
+
+  segments.forEach((segment) => {
+    const words = String(segment.text || '').trim().split(/\s+/).filter(Boolean)
+    words.forEach((word) => {
+      font(doc, segment.bold ? 'bold' : 'normal', size, segment.highlight ? C.white : C.black)
+      let displayed = x === left ? word : ` ${word}`
+      let wordWidth = doc.getTextWidth(displayed)
+      if (x + wordWidth > left + width) {
+        y += lineHeight
+        x = left
+        displayed = word
+        wordWidth = doc.getTextWidth(displayed)
+      }
+      if (segment.highlight) {
+        doc.setFillColor(...C.red)
+        doc.rect(x - 0.2, y - 3.15, wordWidth + 0.4, 3.8, 'F')
+      }
+      doc.text(displayed, x, y)
+      x += wordWidth
+    })
+  })
+
+  return y + lineHeight + 1.2
 }
 
 function renderImportantPoints(doc, currentY, context) {
   const bullets = importantPoints(context)
-  if (!bullets.length) return currentY
+  currentY = ensurePageSpace(doc, currentY, 58)
   currentY = renderSectionTitle(doc, currentY, '1', 'Puntos importantes')
-  bullets.forEach((text) => {
+
+  const hasAffectationLevel = context.affectationLevel !== undefined
+    && context.affectationLevel !== null && context.affectationLevel !== ''
+  const boxX = PAGE.width - PAGE.right - 32
+  const requiredTextWidth = hasAffectationLevel ? boxX - (PAGE.left + 8) - 4 : PAGE.contentWidth - 9
+  const boxBottom = renderAffectationLevel(doc, currentY, context.affectationLevel)
+  let requiredY = currentY
+  REQUIRED_IMPORTANT_POINTS.forEach((segments) => {
+    requiredY = renderRequiredImportantPoint(doc, requiredY, segments, requiredTextWidth)
+  })
+  currentY = Math.max(requiredY, boxBottom)
+
+  bullets.forEach((segments) => {
     font(doc, 'normal', 8.7, C.black)
+    const text = segments.map((segment) => segment.text).join(' ')
     const lines = doc.splitTextToSize(text, PAGE.contentWidth - 9)
     currentY = ensurePageSpace(doc, currentY, lines.length * 4.05 + 2)
-    doc.setFillColor(...C.darkNavy)
-    doc.circle(PAGE.left + 1.2, currentY - 1.3, 0.65, 'F')
-    doc.text(lines, PAGE.left + 8, currentY)
-    currentY += lines.length * 4.05 + 1.2
+    currentY = renderRequiredImportantPoint(doc, currentY, segments, PAGE.contentWidth - 9)
   })
   return currentY + 2
 }
 
 function renderAffectationLevel(doc, currentY, level) {
   if (level === undefined || level === null || level === '') return currentY
-  currentY = ensurePageSpace(doc, currentY, 35)
-  const x = PAGE.width - PAGE.right - 37
-  doc.setDrawColor(...C.orange); doc.setFillColor(...C.lightOrange); doc.roundedRect(x, currentY, 37, 30, 3, 3, 'FD')
-  font(doc, 'bold', 7); doc.text('NIVEL DE AFECTACIÓN', x + 18.5, currentY + 5, { align: 'center' })
-  font(doc, 'bold', 28); doc.text(String(level), x + 18.5, currentY + 18, { align: 'center' })
-  font(doc, 'normal', 4.4); doc.text(['Calificación realizada con base al', 'Manual del COE 2017'], x + 18.5, currentY + 24.5, { align: 'center' })
-  return currentY + 33
+  const width = 27
+  const x = PAGE.width - PAGE.right - width
+  const y = currentY - 4
+  const height = 26
+  doc.setLineWidth(0.45)
+  doc.setDrawColor(178, 62, 53)
+  doc.setFillColor(244, 221, 218)
+  doc.roundedRect(x, y, width, height, 2.5, 2.5, 'FD')
+  font(doc, 'bold', 8)
+  doc.text('NIVEL DE AFECTACIÓN', x + width / 2, y + 5, { align: 'center' })
+  font(doc, 'bold', 36)
+  doc.text(String(level), x + width / 2, y + 17, { align: 'center' })
+  font(doc, 'normal', 5)
+  doc.text(['Calificación realizada con base al', 'Manual del COE 2017'], x + width / 2, y + 23, { align: 'center' })
+  return y + height + 1
+}
+
+function hydrometeorologySegments(text) {
+  const expression = /(bolet[ií]n\s+meteorol[oó]gico\s+Nro\.?\s*[^\s,.;:]+|(?:desde\s+las?\s+)?\d{1,2}H\d{2}\s+del\s+\d{1,2}\s+hasta\s+las?\s+\d{1,2}H\d{2}\s+del\s+\d{1,2}\s+de\s+[a-záéíóúñ]+\s+de\s+\d{4}|(?:regi[oó]n\s+)?(?:litoral|amaz[oó]nica|interandina)|zonas?\s+occidentales)[,.;:]?/gi
+  const source = String(text || '')
+  const segments = []
+  let start = 0
+  source.replace(expression, (match, _group, offset) => {
+    if (offset > start) segments.push({ text: source.slice(start, offset) })
+    segments.push({ text: match, bold: true })
+    start = offset + match.length
+    return match
+  })
+  if (start < source.length) segments.push({ text: source.slice(start) })
+  return segments
 }
 
 function renderHydrometeorology(doc, currentY, data) {
@@ -390,14 +506,22 @@ function renderHydrometeorology(doc, currentY, data) {
   currentY = renderSectionTitle(doc, currentY + 2, '2', 'Situación Hidrometeorológica actual')
   const startY = currentY
   const textX = PAGE.left + visualWidth + gap
-  font(doc, 'normal', 7.4)
   if (data.mapImage) doc.addImage(data.mapImage, 'PNG', PAGE.left, startY, visualWidth, mapHeight)
-  doc.text(lines, textX, startY)
+  const textBottom = renderRichParagraph(doc, startY, hydrometeorologySegments(data.text), {
+    left: textX,
+    width: textWidth,
+    fontSize: 7.4,
+    lineHeight: 3.45,
+    estimatedHeight: textHeight,
+  })
+  let rightBottom = textBottom
   if (data.tableImage) {
     const tableX = textX + (textWidth - tableWidth) / 2
-    doc.addImage(data.tableImage, 'PNG', tableX, startY + textHeight + 3, tableWidth, tableHeight)
+    const tableY = textBottom + 1
+    doc.addImage(data.tableImage, 'PNG', tableX, tableY, tableWidth, tableHeight)
+    rightBottom = tableY + tableHeight
   }
-  return startY + Math.max(mapHeight, rightHeight) + 3
+  return Math.max(startY + mapHeight, rightBottom) + 3
 }
 
 function renderHydrometeorologyForecast(doc, currentY, data) {
@@ -413,9 +537,12 @@ function renderHydrometeorologyForecast(doc, currentY, data) {
   currentY = ensurePageSpace(doc, currentY, requiredHeight)
   currentY = renderSectionTitle(doc, currentY + 2, '2', 'Situación Hidrometeorológica actual')
   const startY = currentY
-  font(doc, 'normal', 7.6, C.black)
-  doc.text(summaryLines, PAGE.left, startY)
-  const mapsY = startY + summaryLines.length * 3.6 + 3
+  const summaryBottom = renderRichParagraph(doc, startY, hydrometeorologySegments(data.text), {
+    fontSize: 7.6,
+    lineHeight: 3.6,
+    estimatedHeight: summaryLines.length * 3.6,
+  })
+  const mapsY = summaryBottom + 1
   maps.forEach((map, index) => {
     const x = PAGE.left + index * (slotWidth + gap)
     font(doc, 'bold', 6.7, C.navy)
@@ -455,6 +582,9 @@ function renderWaterBodyTable(doc, currentY, rows, title, titleColor) {
     columnStyles,
     showHead: 'everyPage',
     rowPageBreak: 'avoid',
+    didParseCell: ({ cell, column, section }) => {
+      if (section === 'body' && isBoldEntityColumn(columns[column.index])) cell.styles.fontStyle = 'bold'
+    },
   })
   return doc.lastAutoTable.finalY + 3
 }
@@ -465,17 +595,16 @@ function renderWaterBodies(doc, currentY, overflowedRows, risingRows, metadata) 
   font(doc, 'normal', 10.5, C.blue)
   doc.text('ESTADO DE CUERPOS DE AGUA.', PAGE.left, currentY)
   currentY += 5
-  font(doc, 'normal', 7.7, C.black)
-  currentY = wrapped(
-    doc,
-    `Al cierre de este informe, las Unidades de Monitoreo de la SNGR han identificado: ${fmt(risingRows.length)} cuerpos hídricos con tendencia a subir de nivel y ${fmt(overflowedRows.length)} cuerpos hídricos desbordados.`,
-    PAGE.left,
-    currentY,
-    PAGE.contentWidth,
-    3.6,
-  ) + 1.5
+  currentY = renderRichParagraph(doc, currentY, [
+    { text: 'Al cierre de este informe, las Unidades de Monitoreo de la' },
+    { text: 'SNGR', bold: true },
+    { text: 'han identificado:' },
+    { text: `${fmt(risingRows.length)} cuerpos hídricos con tendencia a subir de nivel`, bold: true },
+    { text: 'y' },
+    { text: `${fmt(overflowedRows.length)} cuerpos hídricos desbordados.`, bold: true },
+  ], { fontSize: 7.7, lineHeight: 3.6, estimatedHeight: 10 })
+  currentY = renderWaterBodyTable(doc, currentY, overflowedRows, `${fmt(overflowedRows.length)} CUERPOS HÍDRICOS DESBORDADOS`, C.red)
   currentY = renderWaterBodyTable(doc, currentY, risingRows, `${fmt(risingRows.length)} CUERPOS HÍDRICOS CON TENDENCIA A SUBIR DE NIVEL`, C.orange)
-  currentY = renderWaterBodyTable(doc, currentY, overflowedRows, `${fmt(overflowedRows.length)} CUERPOS HÍDRICOS DESBORDADOS`, C.orange)
   return sourceLine(doc, currentY, metadata) + 2
 }
 
@@ -534,8 +663,11 @@ function renderEventsTable(doc, currentY, items, metadata) {
   if (!columns.length || !has(items, 'NumeroEventos') || sum(items, 'NumeroEventos') === 0) return currentY
   currentY = renderSectionTitle(doc, currentY + 2, '3', 'Eventos Adversos y Afectaciones - Resumen')
   const totalEvents = sum(items, 'NumeroEventos')
-  font(doc, 'normal', 8.4)
-  currentY = wrapped(doc, `Desde el ${metadata.startNumeric} hasta el ${metadata.endNumeric}, por lluvias se registraron un total de ${fmt(totalEvents)} eventos adversos, distribuidos de la siguiente manera:`, PAGE.left, currentY, PAGE.contentWidth) + 2
+  currentY = renderRichParagraph(doc, currentY, [
+    { text: `Desde el ${metadata.startNumeric} hasta el ${metadata.endNumeric}, por lluvias se registraron un total de` },
+    { text: `${fmt(totalEvents)} eventos adversos,`, bold: true },
+    { text: 'distribuidos de la siguiente manera:' },
+  ], { fontSize: 8.4, lineHeight: 4, estimatedHeight: 10 })
   currentY = ensurePageSpace(doc, currentY, 45)
   const sorted = [...items].sort((a, b) => n(b?.NumeroEventos) - n(a?.NumeroEventos))
   const body = sorted.map((row, index) => columns.map((column) => column.type === 'index' ? index + 1
@@ -562,6 +694,7 @@ function renderEventsTable(doc, currentY, items, metadata) {
     didParseCell: ({ cell, column, row, section }) => {
       if (section === 'head' && columns[column.index]?.vertical) cell.text = ['']
       if (section !== 'body') return
+      if (column.index >= 1) cell.styles.fontStyle = 'bold'
       if (row.index === body.length - 2) Object.assign(cell.styles, { fillColor: C.navy, textColor: C.white, fontStyle: 'bold' })
       else if (row.index === body.length - 1) {
         if (column.index < 3) { cell.styles.fillColor = C.white; cell.text = [''] }
@@ -630,9 +763,18 @@ function renderProvinceDetail(doc, currentY, items, metadata) {
   const top = ranking(items, 4)
   if (top.length) {
     const [first, ...rest] = top
-    let text = `La provincia con mayor impacto a la población es ${first.provincia} con ${fmt(first.impactadas)} personas impactadas en ${fmt(first.eventos)} eventos`
-    if (rest.length) text += `, seguido de ${rest.map((row) => `${row.provincia} con ${fmt(row.impactadas)} personas impactadas en ${fmt(row.eventos)} eventos`).join(', ')}`
-    font(doc, 'normal', 8.3); currentY = wrapped(doc, `${text}.`, PAGE.left, currentY, PAGE.contentWidth, 3.9) + 2
+    const segments = [
+      { text: 'La provincia con mayor impacto a la población es' },
+      { text: `${first.provincia} con ${fmt(first.impactadas)} personas impactadas en ${fmt(first.eventos)} eventos${rest.length ? ',' : '.'}`, bold: true },
+    ]
+    if (rest.length) {
+      segments.push({ text: 'seguido de' })
+      rest.forEach((row, index) => segments.push({
+        text: `${row.provincia} con ${fmt(row.impactadas)} personas impactadas en ${fmt(row.eventos)} eventos${index === rest.length - 1 ? '.' : ','}`,
+        bold: true,
+      }))
+    }
+    currentY = renderRichParagraph(doc, currentY, segments, { fontSize: 8.3, lineHeight: 3.9, estimatedHeight: 14 })
   }
   const sorted = [...items].sort((a, b) => (
     n(b?.ImpactadasPersonas) - n(a?.ImpactadasPersonas)
@@ -656,6 +798,7 @@ function renderProvinceDetail(doc, currentY, items, metadata) {
     didParseCell: ({ cell, column, row, section }) => {
       if (section === 'head' && column.index >= 2) cell.text = ['']
       if (section !== 'body') return
+      if (column.index >= 1) cell.styles.fontStyle = 'bold'
       if (row.index === body.length - 1) Object.assign(cell.styles, { fillColor: C.navy, textColor: C.white, fontStyle: 'bold' })
       else if (columns[column.index]?.key === 'ImpactadasPersonas') cell.styles.fillColor = provinceImpactHeat(n(sorted[row.index]?.ImpactadasPersonas), maxPeople)
       if (column.index >= 2) keepNumericCellSingleLine(doc, cell, numericWidth)
@@ -677,13 +820,13 @@ function renderProvinceImpactChart(doc, currentY, items, metadata) {
   const barWidth = Math.max(1.2, slot * 0.5)
   const bars = rows.map((row, index) => {
     const barX = x + index * slot + (slot - barWidth) / 2
-    const barHeight = (row.people / maxPeople) * height
+    const barHeight = (row.events / maxEvents) * height
     return { x: barX, width: barWidth, height: barHeight, top: y + height - barHeight }
   })
   const barCenters = bars.map((bar) => bar.x + bar.width / 2)
   const tickPositions = [...barCenters]
-  const eventValues = rows.map((row) => row.events)
-  if (rows.length !== bars.length || bars.length !== barCenters.length || barCenters.length !== eventValues.length
+  const peopleValues = rows.map((row) => row.people)
+  if (rows.length !== bars.length || bars.length !== barCenters.length || barCenters.length !== peopleValues.length
     || tickPositions.some((tick, index) => tick !== barCenters[index])) {
     throw new Error('Las provincias, barras, centros, ticks y eventos de la gráfica no están alineados.')
   }
@@ -691,31 +834,45 @@ function renderProvinceImpactChart(doc, currentY, items, metadata) {
   for (let index = 0; index <= 4; index += 1) {
     const gridY = y + height - (height * index / 4)
     doc.setDrawColor(225, 225, 225); doc.setLineWidth(0.12); doc.line(x, gridY, x + width, gridY)
-    font(doc, 'normal', 4.1, C.gray)
-    doc.text(fmt(Math.round(maxPeople * index / 4)), x - 1.5, gridY + 1, { align: 'right' })
-    doc.text(fmt(Math.round(maxEvents * index / 4)), x + width + 1.5, gridY + 1)
+    font(doc, 'bold', 4.1, C.gray)
+    doc.text(fmt(Math.round(maxEvents * index / 4)), x - 1.5, gridY + 1, { align: 'right' })
+    doc.text(fmt(Math.round(maxPeople * index / 4)), x + width + 1.5, gridY + 1)
+  }
+  const valueLabelMinWidth = 4
+  const valueLabelHorizontalPadding = 0.2
+  const valueLabelHeight = 3.8
+  const valueLabelTextOffsetY = 2.65
+  const valueLabelGap = 0.2
+  const collisionOffsetY = 4
+  const valueLabelMetrics = (text) => {
+    font(doc, 'bold', 6, C.gray)
+    return {
+      width: Math.max(valueLabelMinWidth, doc.getTextWidth(text) + valueLabelHorizontalPadding),
+      height: valueLabelHeight,
+    }
   }
   const valueLabel = (text, centerX, top, fillColor) => {
-    font(doc, 'normal', 3.8, C.gray)
-    const labelWidth = Math.max(4.5, doc.getTextWidth(text) + 1.2)
-    doc.setFillColor(...fillColor); doc.rect(centerX - labelWidth / 2, top, labelWidth, 3.4, 'F')
-    doc.text(text, centerX, top + 2.35, { align: 'center' })
+    const metrics = valueLabelMetrics(text)
+    doc.setFillColor(...fillColor); doc.rect(centerX - metrics.width / 2, top, metrics.width, metrics.height, 'F')
+    doc.text(text, centerX, top + valueLabelTextOffsetY, { align: 'center' })
   }
-  const points = barCenters.map((centerX, index) => [centerX, y + height - (eventValues[index] / maxEvents) * height])
-  const peopleLabels = []
-  font(doc, 'normal', 3.9, C.gray)
+  const points = barCenters.map((centerX, index) => [centerX, y + height - (peopleValues[index] / maxPeople) * height])
+  const eventLabels = rows.map(() => null)
+  font(doc, 'bold', 3.9, C.gray)
   const maxProvinceLabelWidth = Math.max(...rows.map((row) => doc.getTextWidth(row.label.toUpperCase())))
   const labelAngle = 65
   const labelRadians = labelAngle * Math.PI / 180
-  const provinceLabelOffset = 3
+  // Distancia entre la base de la gráfica y los nombres de las provincias.
+  // Este valor es independiente del desplazamiento de las etiquetas que se cruzan.
+  const provinceLabelOffset = 5
   rows.forEach((row, index) => {
     const bar = bars[index]
     const centerX = barCenters[index]
     doc.setFillColor(69, 114, 190); doc.rect(bar.x, bar.top, bar.width, bar.height, 'F')
-    if (row.people) peopleLabels.push({
-      text: fmt(row.people), centerX,
-      top: Math.min(y + height - 3.8, Math.max(y + 4, bar.top + 0.7)),
-    })
+    if (row.events) eventLabels[index] = {
+      text: fmt(row.events), centerX,
+      top: Math.max(y - valueLabelHeight - 0.4, bar.top - valueLabelHeight - valueLabelGap),
+    }
     const provinceLabel = row.label.toUpperCase()
     const labelAnchorY = y + height + provinceLabelOffset
     const labelWidth = doc.getTextWidth(provinceLabel)
@@ -725,21 +882,37 @@ function renderProvinceImpactChart(doc, currentY, items, metadata) {
   })
   doc.setDrawColor(...C.orange); doc.setLineWidth(0.7)
   for (let index = 1; index < points.length; index += 1) doc.line(points[index - 1][0], points[index - 1][1], points[index][0], points[index][1])
-  points.forEach(([px, py], index) => {
+  points.forEach(([px, py]) => {
     doc.setFillColor(...C.orange); doc.circle(px, py, 0.7, 'F')
   })
-  peopleLabels.forEach((label) => valueLabel(label.text, label.centerX, label.top, C.alternate))
+  eventLabels.filter(Boolean).forEach((label) => valueLabel(label.text, label.centerX, label.top, C.alternate))
   points.forEach(([px, py], index) => {
-    if (rows[index].events) valueLabel(fmt(rows[index].events), px, Math.max(y + 0.4, py - 4.2), C.lightOrange)
+    if (!rows[index].people) return
+    const text = fmt(rows[index].people)
+    let labelTop = Math.max(y - valueLabelHeight - 0.4, py - valueLabelHeight - valueLabelGap)
+    const eventLabel = eventLabels[index]
+    if (eventLabel) {
+      const peopleMetrics = valueLabelMetrics(text)
+      const eventMetrics = valueLabelMetrics(eventLabel.text)
+      const eventLeft = eventLabel.centerX - eventMetrics.width / 2
+      const eventRight = eventLabel.centerX + eventMetrics.width / 2
+      const peopleLeft = px - peopleMetrics.width / 2
+      const peopleRight = px + peopleMetrics.width / 2
+      const overlapsHorizontally = peopleRight > eventLeft && peopleLeft < eventRight
+      const overlapsVertically = labelTop + peopleMetrics.height > eventLabel.top
+        && labelTop < eventLabel.top + eventMetrics.height
+      if (overlapsHorizontally && overlapsVertically) labelTop += collisionOffsetY
+    }
+    valueLabel(text, px, labelTop, C.lightOrange)
   })
   font(doc, 'normal', 3.9, C.gray)
   const labelDepth = maxProvinceLabelWidth * Math.sin(labelRadians)
   const legendY = y + height + Math.max(17, labelDepth + provinceLabelOffset + 4), legendX = PAGE.width / 2 - 31
   doc.setFillColor(69, 114, 190); doc.rect(legendX, legendY - 2.1, 5, 2.4, 'F')
-  font(doc, 'normal', 5.2, C.gray); doc.text('Personas Impactadas', legendX + 6.5, legendY)
+  font(doc, 'normal', 5.2, C.gray); doc.text('Nro. de eventos', legendX + 6.5, legendY)
   doc.setDrawColor(...C.orange); doc.setLineWidth(0.7); doc.line(legendX + 39, legendY - 1, legendX + 45, legendY - 1)
   doc.setFillColor(...C.orange); doc.circle(legendX + 42, legendY - 1, 0.65, 'F')
-  font(doc, 'normal', 5.2, C.gray); doc.text('Nro. de eventos', legendX + 46.5, legendY)
+  font(doc, 'normal', 5.2, C.gray); doc.text('Personas Impactadas', legendX + 46.5, legendY)
   return sourceLine(doc, legendY + 6, metadata)
 }
 
@@ -788,6 +961,7 @@ function renderMonthlySummary(doc, currentY, items, metadata) {
         return
       }
       const columnKey = columns[column.index]?.key
+      if (columnKey !== 'month') cell.styles.fontStyle = 'bold'
       if (columnKey === 'eventPct') cell.styles.fillColor = heat(rows[row.index].events, maxMonthlyEvents)
       if (columnKey === 'peoplePct') cell.styles.fillColor = heat(rows[row.index].people, maxMonthlyPeople)
     },
@@ -796,15 +970,69 @@ function renderMonthlySummary(doc, currentY, items, metadata) {
   const maxEvents = Math.max(...rows.map((row) => row.events), 1), maxPeople = Math.max(...rows.map((row) => row.people), 1), slot = width / rows.length
   font(doc, 'normal', 7.5, C.gray); doc.text('Recurrencia de eventos vs personas impactadas por mes', x + width / 2, currentY + 4, { align: 'center' })
   const points = []
+  const eventLabels = []
+  const labelHeight = 3.8
+  const labelGap = 0.7
+  const collisionOffsetY = 5
+  const labelMetrics = (text) => {
+    font(doc, 'bold', 5, C.gray)
+    return { width: Math.max(4, doc.getTextWidth(text) + 0.8), height: labelHeight }
+  }
+  const drawLabel = (text, centerX, top, fillColor, textColor) => {
+    const metrics = labelMetrics(text)
+    doc.setFillColor(...fillColor)
+    doc.rect(centerX - metrics.width / 2, top, metrics.width, metrics.height, 'F')
+    font(doc, 'bold', 5, textColor)
+    doc.text(text, centerX, top + 2.65, { align: 'center' })
+  }
   rows.forEach((row, index) => {
     const bx = x + index * slot + slot * 0.25, bw = slot * 0.5, bh = row.events / maxEvents * height
+    const centerX = bx + bw / 2
     doc.setFillColor(69, 114, 190); doc.rect(bx, y + height - bh, bw, bh, 'F')
-    points.push([bx + bw / 2, y + height - row.people / maxPeople * height])
-    font(doc, 'normal', 5.2, C.gray); doc.text(row.month, bx + bw / 2, y + height + 3.2, { align: 'center' })
+    points.push([centerX, y + height - row.people / maxPeople * height])
+    eventLabels.push({
+      text: fmt(row.events),
+      centerX,
+      top: Math.max(y - labelHeight - 0.4, y + height - bh - labelHeight - labelGap),
+    })
+    font(doc, 'normal', 5.2, C.gray); doc.text(row.month, centerX, y + height + 8, { align: 'center' })
   })
   doc.setDrawColor(...C.orange); doc.setLineWidth(0.6)
   for (let index = 1; index < points.length; index += 1) doc.line(points[index - 1][0], points[index - 1][1], points[index][0], points[index][1])
-  return sourceLine(doc, Math.max(doc.lastAutoTable.finalY, y + height + 5) + 3, metadata)
+  points.forEach(([px, py]) => {
+    doc.setFillColor(...C.orange)
+    doc.circle(px, py, 0.65, 'F')
+  })
+  eventLabels.forEach((label) => drawLabel(label.text, label.centerX, label.top, C.pale, C.blue))
+  points.forEach(([px, py], index) => {
+    const text = fmt(rows[index].people)
+    let labelTop = Math.max(y - labelHeight - 0.4, py - labelHeight - labelGap)
+    const eventLabel = eventLabels[index]
+    const peopleMetrics = labelMetrics(text)
+    const eventMetrics = labelMetrics(eventLabel.text)
+    const overlapsHorizontally = px + peopleMetrics.width / 2 > eventLabel.centerX - eventMetrics.width / 2
+      && px - peopleMetrics.width / 2 < eventLabel.centerX + eventMetrics.width / 2
+    const overlapsVertically = labelTop + peopleMetrics.height > eventLabel.top
+      && labelTop < eventLabel.top + eventMetrics.height
+    if (overlapsHorizontally && overlapsVertically) labelTop += collisionOffsetY
+    drawLabel(text, px, labelTop, C.lightOrange, C.black)
+  })
+
+  const legendY = y + height + 15
+  const legendX = x + width / 2 - 31
+  doc.setFillColor(69, 114, 190)
+  doc.rect(legendX, legendY - 2.1, 7, 2.6, 'F')
+  font(doc, 'normal', 5.2, C.gray)
+  doc.text('Nro. de eventos', legendX + 9, legendY)
+  doc.setDrawColor(...C.orange)
+  doc.setLineWidth(0.7)
+  doc.line(legendX + 42, legendY - 1, legendX + 49, legendY - 1)
+  doc.setFillColor(...C.orange)
+  doc.circle(legendX + 45.5, legendY - 1, 0.7, 'F')
+  font(doc, 'normal', 5.2, C.gray)
+  doc.text('Personas Impactadas', legendX + 51, legendY)
+
+  return sourceLine(doc, Math.max(doc.lastAutoTable.finalY, legendY + 4) + 3, metadata)
 }
 
 function detectColumns(items, priority = []) {
@@ -848,6 +1076,8 @@ function renderGenericTable(doc, currentY, items, options = {}) {
     didParseCell: ({ cell, column, row, section }) => {
       if (section === 'head' && options.vertical !== false && column.index !== textIndex) cell.text = ['']
       if (section === 'body' && options.total && row.index === body.length - 1) Object.assign(cell.styles, { fillColor: C.navy, textColor: C.white, fontStyle: 'bold' })
+      const isRequestedBoldColumn = options.boldColumns?.includes(columns[column.index]?.key)
+      if (section === 'body' && (isBoldEntityColumn(columns[column.index]) || ['number', 'decimal'].includes(columns[column.index]?.type) || isRequestedBoldColumn)) cell.styles.fontStyle = 'bold'
       if (section === 'body' && ['number', 'decimal'].includes(columns[column.index]?.type)) keepNumericCellSingleLine(doc, cell, otherWidth)
     },
     didDrawCell: ({ cell, column, section }) => {
@@ -857,10 +1087,24 @@ function renderGenericTable(doc, currentY, items, options = {}) {
   return doc.lastAutoTable.finalY + 3
 }
 
-function renderTemporaryShelterSection(doc, currentY, number, title, items, priority, metadata) {
+function renderTemporaryShelterSection(doc, currentY, number, title, items, priority, metadata, action) {
   if (!items.length) return currentY
   currentY = renderSectionTitle(doc, currentY, number, title)
-  currentY = renderGenericTable(doc, currentY, items, { priority, fontSize: 7, vertical: false })
+  const shelterCount = items.length
+  const actionText = shelterCount === 1 ? `se ha ${action.singular}` : `se han ${action.plural}`
+  const shelterText = shelterCount === 1 ? 'alojamiento temporal' : 'alojamientos temporales'
+  currentY = renderRichParagraph(doc, currentY, [
+    { text: 'Desde el' },
+    { text: '29 de agosto del 2026,', bold: true },
+    { text: actionText },
+    { text: `${fmt(shelterCount)} ${shelterText}.`, bold: true },
+  ], { fontSize: 8.4, lineHeight: 4, estimatedHeight: 6 })
+  currentY = renderGenericTable(doc, currentY, items, {
+    priority,
+    fontSize: 7,
+    vertical: false,
+    boldColumns: ['Apertura', 'Cierre'],
+  })
   return sourceLine(doc, currentY, metadata) + 2
 }
 
@@ -868,16 +1112,22 @@ function renderTemporaryShelters(doc, currentY, openItems, closedItems, metadata
   currentY = renderTemporaryShelterSection(
     doc, currentY, '5.1', 'Alojamientos Temporales Abiertos', openItems,
     ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura'], metadata,
+    { singular: 'activado', plural: 'activado' },
   )
   return renderTemporaryShelterSection(
     doc, currentY + 2, '5.2', 'Alojamientos Temporales Cerrados', closedItems,
     ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura', 'Cierre'], metadata,
+    { singular: 'cerrado', plural: 'cerrado' },
   )
 }
 
-function renderAssistanceTable(doc, currentY, items, intro, metadata) {
+function renderAssistanceTable(doc, currentY, items, introSegments, metadata) {
   if (!items.length || sum(items, 'Total Bienes') <= 0) return currentY
-  font(doc, 'normal', 8.4); currentY = wrapped(doc, intro, PAGE.left, currentY, PAGE.contentWidth) + 2
+  currentY = renderRichParagraph(doc, currentY, introSegments, {
+    fontSize: 8.4,
+    lineHeight: 4,
+    estimatedHeight: 10,
+  })
   currentY = renderGenericTable(doc, currentY, items, { priority: ['Provincias', 'Provincia', 'Familias Beneficiadas', 'Personas Beneficiadas', 'Total Bienes', 'ProvinciaID'], total: true, fontSize: 5.6 })
   return sourceLine(doc, currentY, metadata) + 2
 }
@@ -886,8 +1136,22 @@ function renderAssistance(doc, currentY, sngr, sndgird, metadata) {
   const hasSngr = sngr.length && sum(sngr, 'Total Bienes') > 0, hasSndgird = sndgird.length && sum(sndgird, 'Total Bienes') > 0
   if (!hasSngr && !hasSndgird) return currentY
   currentY = renderSectionTitle(doc, currentY +2, '6', 'Asistencia Humanitaria')
-  if (hasSngr) currentY = renderAssistanceTable(doc, currentY, sngr, `Por eventos producidos por lluvias desde el ${metadata.startLong} hasta el ${metadata.endLong}, la SNGR ha entregado a la población un total de ${fmt(sum(sngr, 'Total Bienes'))} bienes de asistencia:`, metadata)
-  if (hasSndgird) currentY = renderAssistanceTable(doc, currentY, sndgird, `El resto del SNDGIRD ha entregado a la población un total de ${fmt(sum(sndgird, 'Total Bienes'))} bienes de asistencia:`, metadata)
+  if (hasSngr) currentY = renderAssistanceTable(doc, currentY, sngr, [
+    { text: 'Por eventos producidos por lluvias desde el' },
+    { text: metadata.startLong, bold: true },
+    { text: 'hasta el' },
+    { text: `${metadata.endLong},`, bold: true },
+    { text: 'la' },
+    { text: 'SNGR', bold: true },
+    { text: 'ha entregado a la población un total de' },
+    { text: `${fmt(sum(sngr, 'Total Bienes'))} bienes de asistencia:`, bold: true },
+  ], metadata)
+  if (hasSndgird) currentY = renderAssistanceTable(doc, currentY, sndgird, [
+    { text: 'El resto del' },
+    { text: 'SNDGIRD', bold: true },
+    { text: 'ha entregado a la población un total de' },
+    { text: `${fmt(sum(sndgird, 'Total Bienes'))} bienes de asistencia:`, bold: true },
+  ], metadata)
   return currentY
 }
 
@@ -980,7 +1244,9 @@ function renderDeclarationTable(doc, currentY, title, items, columns, colorAlert
     showHead: 'everyPage',
     rowPageBreak: 'avoid',
     didParseCell: ({ cell, column, row, section }) => {
-      if (!colorAlerts || section !== 'body' || columns[column.index]?.key !== 'NivelAlerta') return
+      if (section !== 'body') return
+      if (isBoldEntityColumn(columns[column.index])) cell.styles.fontStyle = 'bold'
+      if (!colorAlerts || columns[column.index]?.key !== 'NivelAlerta') return
       const fillColor = alertLevelColor(items[row.index]?.NivelAlerta)
       if (fillColor) {
         cell.styles.fillColor = fillColor
@@ -1031,6 +1297,7 @@ function renderCoeTable(doc, currentY, items, columns, options = {}) {
     rowPageBreak: 'avoid',
     didParseCell: ({ cell, column, row, section }) => {
       if (section !== 'body') return
+      if (isBoldEntityColumn(columns[column.index]) || /total|porcentaje/i.test(columns[column.index]?.key || '')) cell.styles.fontStyle = 'bold'
       if (columns[column.index]?.key === 'Estado') cell.styles.textColor = [239, 68, 68]
       if (options.percentageColumn === column.index) cell.styles.fillColor = coePercentageColor(items[row.index]?.PorcentajeActivacion)
       if (options.totalRowIndex === row.index) {
@@ -1229,14 +1496,14 @@ function drawProvinceGeometry(doc, province, mapX, mapY, mapWidth, mapHeight, fi
   })
 }
 
-function renderSitrepSignoffs(doc, currentY, analystEmail) {
+function renderSitrepSignoffs(doc, currentY, analystName, analystEmail) {
   const gap = 16
   const boxWidth = (PAGE.contentWidth - gap) / 2
   const boxes = [
     {
       title: 'SitRep elaborado por:',
       lines: [
-        'Nombre: Cristian Mazorra Olmedo - Analista de Monitoreo',
+        `Nombre: ${String(analystName || '').trim() || 'Pendiente de ingresar'}`,
         `Correo electrónico: ${String(analystEmail || '').trim() || 'Pendiente de ingresar'}`,
         'Teléfono: 04 2593500 ext. 1602',
       ],
@@ -1267,7 +1534,7 @@ function renderSitrepSignoffs(doc, currentY, analystEmail) {
   return currentY + 24
 }
 
-function renderProvinceImpactMap(doc, currentY, items, analystEmail) {
+function renderProvinceImpactMap(doc, currentY, items, analystName, analystEmail) {
   if (!items.length || !has(items, 'ImpactadasPersonas')) return currentY
   doc.addPage('a4', 'portrait')
   currentY = renderSectionTitle(doc, PAGE.top, '9', 'Mapa de Personas Impactadas por lluvias a Nivel Nacional')
@@ -1308,10 +1575,10 @@ function renderProvinceImpactMap(doc, currentY, items, analystEmail) {
   })
 
   currentY = legendY + legendHeight + 4
-  font(doc, 'normal', 6.2, C.black)
+  font(doc, 'bold', 6.2, C.black)
   doc.text('SitRep generado por la Dirección de Monitoreo de Eventos Adversos de la Secretaría Nacional de Gestión de Riesgos.', PAGE.width / 2, currentY, { align: 'center' })
   currentY += 7
-  return renderSitrepSignoffs(doc, currentY, analystEmail)
+  return renderSitrepSignoffs(doc, currentY, analystName, analystEmail)
 }
 
 export async function buildEventosLluviasPdf({
@@ -1320,6 +1587,7 @@ export async function buildEventosLluviasPdf({
   hydrometeorology = null, waterBodiesOverflowed = [], waterBodiesRising = [], alertDeclarations = [], emergencyDeclarations = [],
   nationalCoeItems = [], provincialCoeItems = [], municipalCoeItems = [], parishCoeItems = [],
   highImpactEvents = [],
+  analystName = '',
   analystEmail = '',
   publishedAt = new Date(), startDate = null, endDate = null, assetBaseUrl = null,
 } = {}) {
@@ -1328,8 +1596,7 @@ export async function buildEventosLluviasPdf({
   registerFonts(doc, assets)
   const metadata = periodMetadata(publishedAt, sitrepNumber, startDate, endDate)
   let currentY = PAGE.firstTop
-  currentY = renderImportantPoints(doc, currentY, { items, tipoLluviasItems, asistenciaItems, dpaTotals, metadata })
-  currentY = renderAffectationLevel(doc, currentY, affectationLevel)
+  currentY = renderImportantPoints(doc, currentY, { items, tipoLluviasItems, asistenciaItems, dpaTotals, metadata, affectationLevel })
   currentY = renderHydrometeorology(doc, currentY, hydrometeorology)
   currentY = renderWaterBodies(doc, currentY, waterBodiesOverflowed, waterBodiesRising, metadata)
   currentY = renderEventsTable(doc, currentY, tipoLluviasItems, metadata)
@@ -1341,7 +1608,7 @@ export async function buildEventosLluviasPdf({
   currentY = renderAssistance(doc, currentY, asistenciaItems, asistenciaSNDGIRDItems, metadata)
   currentY = renderDeclarations(doc, currentY, alertDeclarations, emergencyDeclarations, nationalCoeItems, provincialCoeItems, municipalCoeItems, parishCoeItems, metadata)
   currentY = renderHighImpactEvents(doc, currentY, highImpactEvents, metadata)
-  renderProvinceImpactMap(doc, currentY, items, analystEmail)
+  renderProvinceImpactMap(doc, currentY, items, analystName, analystEmail)
   decoratePages(doc, { assets, metadata, publishedAt })
   return doc
 }

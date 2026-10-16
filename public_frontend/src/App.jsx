@@ -659,6 +659,8 @@ function App() {
   const [tipo, setTipo] = useState('lluvias')
   const [provinciaId, setProvinciaId] = useState('')
   const [sitrepNumber, setSitrepNumber] = useState('')
+  const [affectationLevel, setAffectationLevel] = useState('')
+  const [analystName, setAnalystName] = useState('')
   const [analystEmail, setAnalystEmail] = useState('')
   const [desde, setDesde] = useState(() => `${new Date().getFullYear()}-01-01T00:00`)
   const [hasta, setHasta] = useState(() => toDateTimeInputValue(new Date()))
@@ -706,6 +708,16 @@ function App() {
   const validateDateRange = () => {
     if (!desde || !hasta) throw new Error('Selecciona las fechas Desde y Hasta.')
     if (desde > hasta) throw new Error('La fecha Desde no puede ser posterior a la fecha Hasta.')
+  }
+
+  const validateAffectationLevel = () => {
+    if (!/^[1-5]$/.test(affectationLevel.trim())) {
+      throw new Error('Ingresa un nivel de afectación numérico entre 1 y 5.')
+    }
+  }
+
+  const validateAnalystName = () => {
+    if (!analystName.trim()) throw new Error('Ingresa el nombre y cargo del analista que elabora el SitRep.')
   }
 
   const onHydrometeorologyFile = async (event) => {
@@ -1267,6 +1279,8 @@ function App() {
     try {
       if (!PUBLIC_API_KEY) throw new Error('Falta VITE_PUBLIC_API_KEY en el frontend.')
       validateDateRange()
+      validateAffectationLevel()
+      validateAnalystName()
       const trimmedProvincia = provinciaId.trim()
       const mainUrl = buildApiUrl(ENDPOINTS.lluvias, trimmedProvincia)
       const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias, trimmedProvincia)
@@ -1366,10 +1380,12 @@ function App() {
         municipalCoeItems: dataCoeMunicipal?.items || [],
         parishCoeItems: dataCopae?.items || [],
         highImpactEvents: dataEventosAltoImpacto?.items || [],
+        analystName: analystName.trim(),
         analystEmail: analystEmail.trim(),
         dpaTotals: (dataDpa?.items || [])[0] || null,
         provinciaId: provinciaId.trim() || null,
         sitrepNumber: sitrepNumber.trim() || null,
+        affectationLevel: affectationLevel.trim(),
         personasFallecidasItems: dataPersonasFallecidas?.items || [],
         startDate: desde,
         endDate: hasta,
@@ -1474,6 +1490,17 @@ function App() {
           </label>
 
           <label>
+            Nombre y cargo del analista
+            <input
+              type="text"
+              required
+              placeholder="Ej: Cristian Mazorra Olmedo - Analista de Monitoreo"
+              value={analystName}
+              onChange={(e) => setAnalystName(e.target.value)}
+            />
+          </label>
+
+          <label>
             Correo electrónico del analista
             <input
               type="email"
@@ -1492,6 +1519,22 @@ function App() {
                 placeholder="Ej: 34"
                 value={sitrepNumber}
                 onChange={(e) => setSitrepNumber(e.target.value)}
+              />
+            </label>
+          )}
+
+          {tipo === 'lluvias' && (
+            <label>
+              Nivel de afectación
+              <input
+                type="number"
+                min="1"
+                max="5"
+                step="1"
+                required
+                placeholder="Ej: 3"
+                value={affectationLevel}
+                onChange={(e) => setAffectationLevel(e.target.value)}
               />
             </label>
           )}
@@ -2102,7 +2145,7 @@ function App() {
                 <div className="sitrep-signoffs">
                   <div>
                     <h4>SitRep elaborado por:</h4>
-                    <p><strong>Nombre:</strong> Cristian Mazorra Olmedo - Analista de Monitoreo</p>
+                    <p><strong>Nombre:</strong> {analystName.trim() || 'Pendiente de ingresar'}</p>
                     <p><strong>Correo electrónico:</strong> {analystEmail.trim() || 'Pendiente de ingresar'}</p>
                     <p><strong>Teléfono:</strong> 04 2593500 ext. 1602</p>
                   </div>
