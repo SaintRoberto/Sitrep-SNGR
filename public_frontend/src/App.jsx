@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { exportEventosLluviasPdf } from './utils/pdfReport'
+import { exportEventosLluviasWord } from './utils/wordReport.js'
 import { exportInfographicPdf } from './utils/infographicPdf.js'
 import { processHydrometeorologyPdf } from './utils/hydrometeorologyPdf.js'
 import { buildMunicipalCoeSummary, coeActivationClass, uniqueActiveCoeRows } from './utils/coeConfig.js'
@@ -1258,7 +1259,7 @@ function App() {
     }
   }
 
-  const onDescargarPrincipal = async () => {
+  const onDescargarPrincipal = async (format = 'pdf') => {
     if (!items.length) {
       setError('Primero consulta datos para generar la descarga.')
       return
@@ -1362,7 +1363,7 @@ function App() {
       if (!responseCopae.ok) throw new Error(dataCopae?.error || 'Error consultando COPAE parroquiales')
       if (!responseEventosAltoImpacto.ok) throw new Error(dataEventosAltoImpacto?.error || 'Error consultando eventos adversos de alto impacto')
 
-      await exportEventosLluviasPdf({
+      const reportOptions = {
         items: dataMain?.items || [],
         tipoLluviasItems: dataTipos?.items || [],
         asistenciaItems: dataAsistencia?.items || [],
@@ -1390,7 +1391,9 @@ function App() {
         startDate: desde,
         endDate: hasta,
         hydrometeorology,
-      })
+      }
+      if (format === 'word') await exportEventosLluviasWord(reportOptions)
+      else await exportEventosLluviasPdf(reportOptions)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -1554,8 +1557,11 @@ function App() {
           )}
 
           <button type="submit" disabled={loading || !API_BASE_URL || !dateRangeValid}>{loading ? 'Consultando...' : 'Consultar'}</button>
-          <button type="button" onClick={onDescargarPrincipal} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
+          <button type="button" onClick={() => onDescargarPrincipal('pdf')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
             {'Descargar PDF'}
+          </button>
+          <button type="button" onClick={() => onDescargarPrincipal('word')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
+            {'Descargar Word editable'}
           </button>
           {tipo === 'lluvias' && (
             <button type="button" className="infographic-button" onClick={onDescargarInfografia} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>

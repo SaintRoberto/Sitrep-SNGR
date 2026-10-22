@@ -209,7 +209,14 @@ function periodMetadata(publishedAt, sitrepNumber, startDate, endDate) {
 }
 
 function assetUrl(folder, file, baseUrl) {
-  const base = baseUrl || import.meta.env?.BASE_URL || '/'
+  const productionBase = import.meta.env?.VITE_API_ENV === 'prod'
+    ? import.meta.env?.VITE_API_PROD_URL
+    : ''
+  const base = baseUrl
+    || import.meta.env?.VITE_ASSET_BASE_URL
+    || productionBase
+    || import.meta.env?.BASE_URL
+    || '/'
   return `${base.endsWith('/') ? base : `${base}/`}assets/${folder}/${encodeURIComponent(file)}`
 }
 
