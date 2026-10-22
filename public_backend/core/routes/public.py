@@ -34,6 +34,15 @@ from ..utils.auth import require_api_key
 public_bp = Blueprint("public", __name__, url_prefix="/api/public")
 
 
+def _jsonify_preserving_order(payload, status=200):
+    response = current_app.response_class(
+        response=current_app.json.dumps(payload, sort_keys=False),
+        status=status,
+        mimetype="application/json",
+    )
+    return response
+
+
 
 
 @public_bp.get("/test-conexion")
@@ -350,7 +359,7 @@ def asistencia_humanitaria_por_sngr_por_lluvias():
         type: string
         required: true
         description: Clave de API para autenticación
-    responses:
+    responses:@
       200:
         description: Lista de eventos
       400:
@@ -367,7 +376,7 @@ def asistencia_humanitaria_por_sngr_por_lluvias():
 
     try:
         data = get_asistencia_humanitaria_por_lluvias(desde, hasta, provincia_id)
-        return jsonify({"total": len(data), "items": data}), 200
+        return _jsonify_preserving_order({"total": len(data), "items": data})
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
 
@@ -726,7 +735,7 @@ def asistencia_humanitaria_por_sndgird_por_lluvias():
 
     try:
         data = get_asistencia_humanitaria_por_lluvias_SNDGIRD(desde, hasta, provincia_id)
-        return jsonify({"total": len(data), "items": data}), 200
+        return _jsonify_preserving_order({"total": len(data), "items": data})
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
 

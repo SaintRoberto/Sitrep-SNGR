@@ -44,6 +44,51 @@ h1 {
   gap: 12px;
 }
 
+.report-type-selector {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+}
+
+.report-type-selector legend {
+  padding: 0 6px;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.report-type-option {
+  min-width: 180px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.report-type-option.selected {
+  border-color: #0f766e;
+  background: #ecfdf5;
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.report-type-option input[type='radio'] {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  padding: 0;
+  accent-color: #0f766e;
+}
+
 label {
   display: grid;
   gap: 6px;
@@ -75,6 +120,10 @@ button:disabled {
 
 button.infographic-button {
   background: #1f3c69;
+}
+
+button.water-report-button {
+  background: #ef7024;
 }
 
 .request-url {
@@ -555,6 +604,101 @@ button.infographic-button {
 .table-wrap {
   overflow: auto;
   border: 1px solid #d6dbe8;
+}
+
+.html-chart-section {
+  margin-top: 16px;
+}
+
+.events-people-chart-wrap {
+  width: 100%;
+  margin: 10px 0 18px;
+  overflow-x: auto;
+  background: #fff;
+}
+
+.events-people-chart {
+  display: block;
+  width: 100%;
+  min-width: 920px;
+  height: auto;
+  font-family: "Arial Narrow", Arial, sans-serif;
+}
+
+.chart-main-title {
+  fill: #808080;
+  font-size: 23px;
+}
+
+.chart-grid-line {
+  stroke: #e1e1e1;
+  stroke-width: 1;
+}
+
+.chart-axis-label {
+  fill: #777;
+  font-size: 13px;
+}
+
+.chart-event-bar {
+  fill: #4572be;
+}
+
+.chart-bar-value {
+  fill: #59616b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.chart-category-label {
+  fill: #59616b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chart-people-line {
+  fill: none;
+  stroke: #ef7024;
+  stroke-width: 3;
+}
+
+.chart-people-point,
+.chart-people-label-bg {
+  fill: #ef7024;
+}
+
+.chart-people-value {
+  fill: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.chart-legend {
+  fill: #666;
+  font-size: 14px;
+}
+
+.province-chart-table-wrap {
+  width: min(900px, 100%);
+  margin: 0 auto 18px;
+}
+
+.province-chart-table {
+  min-width: 620px;
+  table-layout: fixed;
+}
+
+.province-chart-table th:first-child,
+.province-chart-table td:first-child {
+  width: 50%;
+  text-align: left;
+}
+
+.province-chart-table th:nth-child(2),
+.province-chart-table td:nth-child(2),
+.province-chart-table th:nth-child(3),
+.province-chart-table td:nth-child(3) {
+  width: 25%;
 }
 
 table {

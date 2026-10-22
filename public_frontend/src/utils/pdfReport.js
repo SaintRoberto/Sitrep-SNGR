@@ -1058,6 +1058,7 @@ function detectColumns(items, priority = []) {
 function renderGenericTable(doc, currentY, items, options = {}) {
   if (!items.length) return currentY
   const columns = (options.columns || detectColumns(items, options.priority))
+    .filter((column) => !options.excludeKeys?.includes(column.key))
     .filter((column) => !['number', 'decimal'].includes(column.type) || sum(items, column.key) !== 0)
   if (!columns.length) return currentY
   currentY = ensurePageSpace(doc, currentY, 30)
@@ -1135,7 +1136,12 @@ function renderAssistanceTable(doc, currentY, items, introSegments, metadata) {
     lineHeight: 4,
     estimatedHeight: 10,
   })
-  currentY = renderGenericTable(doc, currentY, items, { priority: ['Provincias', 'Provincia', 'Familias Beneficiadas', 'Personas Beneficiadas', 'Total Bienes', 'ProvinciaID'], total: true, fontSize: 5.6 })
+  currentY = renderGenericTable(doc, currentY, items, {
+    priority: ['Provincias', 'Provincia', 'Familias Beneficiadas', 'Personas Beneficiadas', 'Total Bienes'],
+    excludeKeys: ['ProvinciaID'],
+    total: true,
+    fontSize: 5.6,
+  })
   return sourceLine(doc, currentY, metadata) + 2
 }
 

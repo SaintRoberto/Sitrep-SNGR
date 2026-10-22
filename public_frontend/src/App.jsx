@@ -3,6 +3,7 @@ import './App.css'
 import { exportEventosLluviasPdf } from './utils/pdfReport'
 import { exportEventosLluviasWord } from './utils/wordReport.js'
 import { exportInfographicPdf } from './utils/infographicPdf.js'
+import { exportWaterBodiesPdf } from './utils/waterBodiesPdf.js'
 import { processHydrometeorologyPdf } from './utils/hydrometeorologyPdf.js'
 import { buildMunicipalCoeSummary, coeActivationClass, uniqueActiveCoeRows } from './utils/coeConfig.js'
 import {
@@ -223,6 +224,7 @@ const MESES_ORDENADOS = [
 ]
 
 const MES_RANK = new Map(MESES_ORDENADOS.map((mes, idx) => [mes.toLowerCase(), idx]))
+const ASSISTANCE_HIDDEN_KEYS = new Set(['ProvinciaID'])
 
 function n(v) {
   const x = Number(String(v ?? '').replace(',', '.'))
@@ -655,11 +657,103 @@ function formatDateNumeric(value) {
   }) : String(value || '')
 }
 
+function EventsPeopleChart({ title, rows }) {
+  if (!rows.length) return null
+
+  const width = Math.max(920, rows.length * 54 + 170)
+  const height = 590
+  const plot = { left: 66, top: 66, right: width - 82, bottom: 420 }
+  const plotWidth = plot.right - plot.left
+  const plotHeight = plot.bottom - plot.top
+  const maxEvents = Math.max(1, ...rows.map((row) => n(row.events)))
+  const maxPeople = Math.max(1, ...rows.map((row) => n(row.people)))
+  const slot = plotWidth / rows.length
+  const barWidth = Math.min(48, Math.max(12, slot * 0.46))
+  const points = rows.map((row, index) => ({
+    x: plot.left + slot * index + slot / 2,
+    y: plot.bottom - n(row.people) / maxPeople * plotHeight,
+  }))
+  const linePoints = points.map((point) => `${point.x},${point.y}`).join(' ')
+  const ticks = [0, 1, 2, 3, 4]
+
+  return (
+    <div className="events-people-chart-wrap">
+      <svg
+        className="events-people-chart"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={title}
+      >
+        <title>{title}</title>
+        <text className="chart-main-title" x={width / 2} y="30" textAnchor="middle">{title}</text>
+
+        {ticks.map((tick) => {
+          const y = plot.bottom - plotHeight * tick / 4
+          return (
+            <g key={`tick-${tick}`}>
+              <line className="chart-grid-line" x1={plot.left} y1={y} x2={plot.right} y2={y} />
+              <text className="chart-axis-label" x={plot.left - 10} y={y + 4} textAnchor="end">
+                {formatInt(maxEvents * tick / 4)}
+              </text>
+              <text className="chart-axis-label" x={plot.right + 10} y={y + 4} textAnchor="start">
+                {formatInt(maxPeople * tick / 4)}
+              </text>
+            </g>
+          )
+        })}
+
+        {rows.map((row, index) => {
+          const x = plot.left + slot * index + slot / 2
+          const barHeight = n(row.events) / maxEvents * plotHeight
+          return (
+            <g key={`bar-${row.label}-${index}`}>
+              <rect className="chart-event-bar" x={x - barWidth / 2} y={plot.bottom - barHeight} width={barWidth} height={barHeight} />
+              <text className="chart-bar-value" x={x} y={Math.max(plot.top + 12, plot.bottom - barHeight - 7)} textAnchor="middle">
+                {formatInt(row.events)}
+              </text>
+              <text
+                className="chart-category-label"
+                transform={`translate(${x + 3} ${plot.bottom + 43}) rotate(-58)`}
+                textAnchor="end"
+              >
+                {row.label}
+              </text>
+            </g>
+          )
+        })}
+
+        <polyline className="chart-people-line" points={linePoints} />
+        {points.map((point, index) => {
+          const label = formatInt(rows[index].people)
+          const labelWidth = Math.max(18, label.length * 7 + 10)
+          const labelY = Math.min(plot.bottom + 28, point.y + 28)
+          return (
+            <g key={`point-${rows[index].label}-${index}`}>
+              <circle className="chart-people-point" cx={point.x} cy={point.y} r="5" />
+              <rect className="chart-people-label-bg" x={point.x - labelWidth / 2} y={labelY - 16} width={labelWidth} height="22" />
+              <text className="chart-people-value" x={point.x} y={labelY} textAnchor="middle">{label}</text>
+            </g>
+          )
+        })}
+
+        <g className="chart-legend" transform={`translate(${width / 2 - 175} 558)`}>
+          <rect className="chart-event-bar" x="0" y="-11" width="26" height="12" />
+          <text x="36" y="0">Nro. de eventos</text>
+          <line className="chart-people-line" x1="205" y1="-5" x2="245" y2="-5" />
+          <text x="255" y="0">Personas Impactadas</text>
+        </g>
+      </svg>
+    </div>
+  )
+}
+
 function App() {
   const maxSelectableDateTime = useMemo(() => toDateTimeInputValue(new Date()), [])
   const [tipo, setTipo] = useState('lluvias')
   const [provinciaId, setProvinciaId] = useState('')
+  const [reportOutputType, setReportOutputType] = useState('sitrep')
   const [sitrepNumber, setSitrepNumber] = useState('')
+  const [waterReportNumber, setWaterReportNumber] = useState('')
   const [affectationLevel, setAffectationLevel] = useState('')
   const [analystName, setAnalystName] = useState('')
   const [analystEmail, setAnalystEmail] = useState('')
@@ -752,6 +846,14 @@ function App() {
     const ordered = sortByPersonasImpactadasDesc(items)
     return ordered.map((row, idx) => ({ __no__: idx + 1, ...row }))
   }, [items])
+  const provinceChartRows = useMemo(() => items
+    .map((row) => ({
+      label: String(row?.Provincia || '').trim(),
+      events: n(row?.NumeroEventos),
+      people: n(row?.ImpactadasPersonas),
+    }))
+    .filter((row) => row.label && (row.events || row.people))
+    .sort((a, b) => b.people - a.people || b.events - a.events), [items])
   const provinceImpactSummary = useMemo(() => buildProvinceImpactMap(items), [items])
   const tipoLluviasRowsOrdered = useMemo(() => sortByNumeroEventosDesc(tipoLluviasItems), [tipoLluviasItems])
   const section3Cols = useMemo(() => (tipo === 'lluvias' ? TIPO_LLUVIAS_COLS : currentDetailCols), [tipo, currentDetailCols])
@@ -829,6 +931,9 @@ function App() {
       },
     ]
   }, [eventosMesItems])
+  const monthlyChartRows = useMemo(() => section43Rows
+    .filter((row) => !row.__isTotal__)
+    .map((row) => ({ label: row.mes, events: row.eventos, people: row.personas_impactadas })), [section43Rows])
   const section43ColorMaximums = useMemo(() => {
     const rows = section43Rows.filter((row) => !row.__isTotal__)
     return {
@@ -861,7 +966,6 @@ function App() {
         'Familias Beneficiadas',
         'Personas Beneficiadas',
         'Total Bienes',
-        'ProvinciaID',
       ]),
     [asistenciaItems]
   )
@@ -872,7 +976,8 @@ function App() {
   const section6ColsFiltered = useMemo(
     () =>
       section6Cols.filter(([key]) => {
-        if (key === '__no__' || key === 'Provincias') return true
+        if (ASSISTANCE_HIDDEN_KEYS.has(key)) return false
+        if (key === '__no__') return true
 
         const values = section6Rows
           .map((row) => row?.[key])
@@ -1002,7 +1107,6 @@ function App() {
         'Familias Beneficiadas',
         'Personas Beneficiadas',
         'Total Bienes',
-        'ProvinciaID',
       ]),
     [asistenciaSNDGIRDItems]
   )
@@ -1013,7 +1117,8 @@ function App() {
   const section6SNDGIRDColsFiltered = useMemo(
     () =>
       section6SNDGIRDCols.filter(([key]) => {
-        if (key === '__no__' || key === 'Provincias') return true
+        if (ASSISTANCE_HIDDEN_KEYS.has(key)) return false
+        if (key === '__no__') return true
 
         const values = section6SNDGIRDRows
           .map((row) => row?.[key])
@@ -1445,6 +1550,41 @@ function App() {
     }
   }
 
+  const onDescargarCuerposHidricos = async () => {
+    if (reportOutputType !== 'water-bodies') {
+      setError('Selecciona “Cuerpos hídricos” como tipo de reporte.')
+      return
+    }
+    if (tipo !== 'lluvias') {
+      setError('El reporte de cuerpos hídricos está disponible para la consulta de eventos por lluvias.')
+      return
+    }
+    if (!waterReportNumber.trim()) {
+      setError('Ingresa el número del reporte de cuerpos hídricos.')
+      return
+    }
+    if (!shouldShowWaterBodies) {
+      setError('Primero consulta los datos de cuerpos hídricos para generar el reporte.')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    try {
+      validateDateRange()
+      await exportWaterBodiesPdf({
+        waterBodiesOverflowed: cuerposHidricosDesbordadosItems,
+        waterBodiesRising: cuerposHidricosTendenciaItems,
+        sitrepNumber: waterReportNumber.trim(),
+        endDate: hasta,
+      })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <main className="app-shell">
       <section className="card">
@@ -1453,9 +1593,39 @@ function App() {
         <p className="muted">API Base URL: <code>{API_BASE_URL || 'No configurada'}</code></p>
 
         <form onSubmit={onConsultar} className="form-grid">
+          {tipo === 'lluvias' && (
+            <fieldset className="report-type-selector">
+              <legend>¿Qué reporte desea generar?</legend>
+              <label className={reportOutputType === 'sitrep' ? 'report-type-option selected' : 'report-type-option'}>
+                <input
+                  type="radio"
+                  name="report-output-type"
+                  value="sitrep"
+                  checked={reportOutputType === 'sitrep'}
+                  onChange={(event) => setReportOutputType(event.target.value)}
+                />
+                <span>SITREP</span>
+              </label>
+              <label className={reportOutputType === 'water-bodies' ? 'report-type-option selected' : 'report-type-option'}>
+                <input
+                  type="radio"
+                  name="report-output-type"
+                  value="water-bodies"
+                  checked={reportOutputType === 'water-bodies'}
+                  onChange={(event) => setReportOutputType(event.target.value)}
+                />
+                <span>Cuerpos hídricos</span>
+              </label>
+            </fieldset>
+          )}
+
           <label>
             Tipo de evento
-            <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
+            <select value={tipo} onChange={(event) => {
+              const nextType = event.target.value
+              setTipo(nextType)
+              if (nextType !== 'lluvias') setReportOutputType('sitrep')
+            }}>
               <option value="lluvias">Eventos por lluvias</option>
               <option value="noLluvias">Eventos no por lluvias</option>
               <option value="incendios">Eventos por incendios forestales</option>
@@ -1492,28 +1662,32 @@ function App() {
             />
           </label>
 
-          <label>
-            Nombre y cargo del analista
-            <input
-              type="text"
-              required
-              placeholder="Ej: Cristian Mazorra Olmedo - Analista de Monitoreo"
-              value={analystName}
-              onChange={(e) => setAnalystName(e.target.value)}
-            />
-          </label>
+          {reportOutputType === 'sitrep' && (
+            <>
+              <label>
+                Nombre y cargo del analista
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Cristian Mazorra Olmedo - Analista de Monitoreo"
+                  value={analystName}
+                  onChange={(e) => setAnalystName(e.target.value)}
+                />
+              </label>
 
-          <label>
-            Correo electrónico del analista
-            <input
-              type="email"
-              placeholder="Ej: analista@gestionderiesgos.gob.ec"
-              value={analystEmail}
-              onChange={(e) => setAnalystEmail(e.target.value)}
-            />
-          </label>
+              <label>
+                Correo electrónico del analista
+                <input
+                  type="email"
+                  placeholder="Ej: analista@gestionderiesgos.gob.ec"
+                  value={analystEmail}
+                  onChange={(e) => setAnalystEmail(e.target.value)}
+                />
+              </label>
+            </>
+          )}
 
-          {tipo === 'lluvias' && (
+          {tipo === 'lluvias' && reportOutputType === 'sitrep' && (
             <label>
               Nro. de SITREP / Infografía (opcional)
               <input
@@ -1526,7 +1700,21 @@ function App() {
             </label>
           )}
 
-          {tipo === 'lluvias' && (
+          {tipo === 'lluvias' && reportOutputType === 'water-bodies' && (
+            <label>
+              Reporte No. de cuerpos hídricos
+              <input
+                type="text"
+                inputMode="numeric"
+                required
+                placeholder="Ej: 178"
+                value={waterReportNumber}
+                onChange={(event) => setWaterReportNumber(event.target.value.replace(/\D/g, ''))}
+              />
+            </label>
+          )}
+
+          {tipo === 'lluvias' && reportOutputType === 'sitrep' && (
             <label>
               Nivel de afectación
               <input
@@ -1542,7 +1730,7 @@ function App() {
             </label>
           )}
 
-          {tipo === 'lluvias' && (
+          {tipo === 'lluvias' && reportOutputType === 'sitrep' && (
             <label className="hydrometeorology-upload">
               Boletín hidrometeorológico del INAMHI
               <input type="file" accept="application/pdf,.pdf" onChange={onHydrometeorologyFile} disabled={hydrometeorologyLoading} />
@@ -1557,15 +1745,20 @@ function App() {
           )}
 
           <button type="submit" disabled={loading || !API_BASE_URL || !dateRangeValid}>{loading ? 'Consultando...' : 'Consultar'}</button>
-          <button type="button" onClick={() => onDescargarPrincipal('pdf')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
+          <button type="button" onClick={() => onDescargarPrincipal('pdf')} disabled={reportOutputType !== 'sitrep' || loading || hydrometeorologyLoading || !dateRangeValid}>
             {'Descargar PDF'}
           </button>
-          <button type="button" onClick={() => onDescargarPrincipal('word')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
+          <button type="button" onClick={() => onDescargarPrincipal('word')} disabled={reportOutputType !== 'sitrep' || loading || hydrometeorologyLoading || !dateRangeValid}>
             {'Descargar Word editable'}
           </button>
           {tipo === 'lluvias' && (
-            <button type="button" className="infographic-button" onClick={onDescargarInfografia} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
+            <button type="button" className="infographic-button" onClick={onDescargarInfografia} disabled={reportOutputType !== 'sitrep' || loading || hydrometeorologyLoading || !dateRangeValid}>
               {'Descargar Infografía PDF'}
+            </button>
+          )}
+          {tipo === 'lluvias' && (
+            <button type="button" className="water-report-button" onClick={onDescargarCuerposHidricos} disabled={reportOutputType !== 'water-bodies' || !waterReportNumber.trim() || loading || !dateRangeValid || !shouldShowWaterBodies}>
+              {'Descargar Reporte de estado de cuerpos hídricos'}
             </button>
           )}
           <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled>
@@ -1777,10 +1970,46 @@ function App() {
               </table>
             </div>
 
+            {provinceChartRows.length > 0 && (
+              <section className="html-chart-section">
+                <div className="block-title pt-4">Número de eventos vs Personas Impactadas por provincia</div>
+                <EventsPeopleChart
+                  title="Número de eventos vs Personas Impactadas por provincia"
+                  rows={provinceChartRows}
+                />
+                <div className="table-wrap province-chart-table-wrap">
+                  <table className="province-chart-table">
+                    <thead>
+                      <tr>
+                        <th>Provincia</th>
+                        <th>Nro. de eventos</th>
+                        <th>Personas impactadas</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {provinceChartRows.map((row) => (
+                        <tr key={`province-chart-${row.label}`}>
+                          <td>{row.label}</td>
+                          <td>{formatInt(row.events)}</td>
+                          <td>{formatInt(row.people)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
             <>
 
             <div className="block-title pt-4">4.3 Numero de Eventos vs Personas Impactadas por fecha</div>
             <p className="muted">{section43Analisis}</p>
+            {monthlyChartRows.length > 0 && (
+              <EventsPeopleChart
+                title="Recurrencia de eventos vs personas impactadas por mes"
+                rows={monthlyChartRows}
+              />
+            )}
             <button
               type="button"
               onClick={() => downloadExcelXml('eventos_lluvias_total_por_mes.xml', 'EventosLluviasPorMes', EVENTOS_MES_COLS, section43RowsForExport)}

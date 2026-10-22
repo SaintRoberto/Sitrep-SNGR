@@ -710,6 +710,7 @@ function provinceMapImage(items) {
 function addGenericTable(children, items, priority = [], total = false, options = {}) {
   if (!items.length) return
   const columns = detectColumns(items, priority)
+    .filter((column) => !options.excludeKeys?.includes(column.key))
   const rows = [...items]
   if (total) {
     rows.push(Object.fromEntries(columns.map((column, index) => [column.key, column.type === 'number' ? sum(items, column.key) : index === 0 ? 'Total general' : ''])))
@@ -1106,12 +1107,18 @@ export async function buildEventosLluviasWord({
     children.push(sectionTitle('6', 'Asistencia Humanitaria'))
     if (asistenciaItems.length && sum(asistenciaItems, 'Total Bienes')) {
       children.push(paragraphFromSegments([['Por eventos producidos por lluvias desde el ', false], [metadata.startLong, true], [' hasta el ', false], [`${metadata.endLong}, `, true], ['la SNGR ha entregado a la población un total de ', false], [`${fmt(sum(asistenciaItems, 'Total Bienes'))} bienes de asistencia:`, true]]))
-      addGenericTable(children, asistenciaItems, ['Provincias', 'Provincia', 'Familias Beneficiadas', 'Personas Beneficiadas', 'Total Bienes', 'ProvinciaID'], true, { verticalHeaders: verticalDataHeader })
+      addGenericTable(children, asistenciaItems, ['Provincias', 'Provincia', 'Familias Beneficiadas', 'Personas Beneficiadas', 'Total Bienes'], true, {
+        verticalHeaders: verticalDataHeader,
+        excludeKeys: ['ProvinciaID'],
+      })
       children.push(sourceLine(metadata))
     }
     if (asistenciaSNDGIRDItems.length && sum(asistenciaSNDGIRDItems, 'Total Bienes')) {
       children.push(paragraphFromSegments([['El resto del SNDGIRD ha entregado a la población un total de ', false], [`${fmt(sum(asistenciaSNDGIRDItems, 'Total Bienes'))} bienes de asistencia:`, true]]))
-      addGenericTable(children, asistenciaSNDGIRDItems, ['Provincias', 'Provincia', 'Familias Beneficiadas', 'Personas Beneficiadas', 'Total Bienes', 'ProvinciaID'], true, { verticalHeaders: verticalDataHeader })
+      addGenericTable(children, asistenciaSNDGIRDItems, ['Provincias', 'Provincia', 'Familias Beneficiadas', 'Personas Beneficiadas', 'Total Bienes'], true, {
+        verticalHeaders: verticalDataHeader,
+        excludeKeys: ['ProvinciaID'],
+      })
       children.push(sourceLine(metadata))
     }
   }
