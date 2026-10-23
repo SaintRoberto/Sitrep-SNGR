@@ -19,7 +19,7 @@ const COLORS = {
 const PAGE = { width: 297, height: 210, left: 7, right: 7, top: 36, bottom: 198 }
 const TEMPLATE_FILES = {
   logo: ['water-report', 'gobierno-ecuador-sngr.png'],
-  mapBase: ['water-report', 'ecuador-reservas-map.png'],
+  mapBase: ['water-report', 'ecuador-reservas-map-v2.png'],
   fontLight: ['sitrep-template', 'BarlowCondensed-Light.ttf'],
   fontRegular: ['sitrep-template', 'BarlowCondensed-Regular.ttf'],
   fontBold: ['sitrep-template', 'BarlowCondensed-SemiBold.ttf'],
@@ -39,6 +39,22 @@ const TABLE_COLUMNS = [
 const POINT_OFFSETS = [
   [0, 0], [8, -5], [-8, 5], [11, 7], [-11, -7], [4, 12], [-4, -12], [14, -3], [-14, 3],
 ]
+
+const MAINLAND_GEO_BOUNDS = {
+  west: -81.1,
+  east: -75.15,
+  north: 1.5,
+  south: -5.02,
+}
+
+const GALAPAGOS_GEO_BOUNDS = {
+  west: -92.2,
+  east: -89.1,
+  north: 1,
+  south: -1.6,
+}
+
+const GALAPAGOS_MAP_FRAME = { x: 44, y: 52, width: 30, height: 30 }
 
 function assetUrl(folder, file, baseUrl) {
   const productionBase = import.meta.env?.VITE_API_ENV === 'prod' ? import.meta.env?.VITE_API_PROD_URL : ''
@@ -145,7 +161,7 @@ function header(doc, assets, reportNumber, cutoff) {
   doc.text(`Fecha y hora de corte: ${cutoff}`, PAGE.left, 14.9)
 
   doc.setFillColor(...COLORS.navy)
-  doc.rect(170, 2.8, 126, 2.2, 'F')
+  doc.rect(170, 0.5, PAGE.width - 170, 1.5, 'F')
   doc.addImage(assets.logo, 'PNG', 216, 4.9, 74, 11.6)
   drawReportPill(doc, reportNumber)
 }
@@ -166,19 +182,24 @@ function provinceLookup() {
   return new Map(ECUADOR_PROVINCES.map((province) => [normalizeProvinceName(province.name), province]))
 }
 
-function activeProvinceCounts(rows) {
-  const counts = new Map()
-  rows.forEach((row) => {
+function activeProvinceStates(overflowRows, risingRows) {
+  const states = new Map()
+  const mark = (rows, status) => rows.forEach((row) => {
     const key = normalizeProvinceName(row.Provincia)
-    if (key) counts.set(key, (counts.get(key) || 0) + 1)
+    if (!key) return
+    const state = states.get(key) || { overflowed: false, rising: false }
+    state[status] = true
+    states.set(key, state)
   })
-  return counts
+  mark(overflowRows, 'overflowed')
+  mark(risingRows, 'rising')
+  return states
 }
 
-function activeProvinceColor(count, maximum) {
-  if (!count) return [241, 245, 249]
-  const ratio = maximum > 1 ? (count - 1) / (maximum - 1) : 1
-  return [Math.round(189 - 95 * ratio), Math.round(218 - 73 * ratio), Math.round(244 - 25 * ratio)]
+function activeProvinceColor(state) {
+  return state.overflowed && state.rising
+    ? [55, 116, 198]
+    : [173, 215, 245]
 }
 
 function geometryBounds(provinces) {
@@ -250,27 +271,152 @@ function drawProvince(doc, province, map, fillColor, opacity = 1) {
   if (opacity < 1 && doc.GState) doc.restoreGraphicsState()
 }
 
+function parseCoordinate(value) {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = Number(String(value).trim().replace(',', '.'))
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function pointInsideBounds(latitude, longitude, bounds) {
+  return latitude >= bounds.south && latitude <= bounds.north
+    && longitude >= bounds.west && longitude <= bounds.east
+}
+
+function pointInsideRing(point, ring) {
+  let inside = false
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
+    const [x, y] = ring[index]
+    const [previousX, previousY] = ring[previous]
+    const intersects = ((y > point[1]) !== (previousY > point[1]))
+      && point[0] < ((previousX - x) * (point[1] - y)) / (previousY - y || Number.EPSILON) + x
+    if (intersects) inside = !inside
+  }
+  return inside
+}
+
+function nearestPointOnSegment(point, start, end) {
+  const deltaX = end[0] - start[0]
+  const deltaY = end[1] - start[1]
+  const lengthSquared = deltaX * deltaX + deltaY * deltaY
+  if (!lengthSquared) return start
+  const ratio = Math.max(0, Math.min(1, (
+    (point[0] - start[0]) * deltaX + (point[1] - start[1]) * deltaY
+  ) / lengthSquared))
+  return [start[0] + ratio * deltaX, start[1] + ratio * deltaY]
+}
+
+function nearestRingBoundary(point, ring) {
+  let nearest = ring[0]
+  let distance = Infinity
+  for (let index = 0; index < ring.length; index += 1) {
+    const candidate = nearestPointOnSegment(point, ring[index], ring[(index + 1) % ring.length])
+    const candidateDistance = Math.hypot(point[0] - candidate[0], point[1] - candidate[1])
+    if (candidateDistance < distance) {
+      nearest = candidate
+      distance = candidateDistance
+    }
+  }
+  return { point: nearest, distance }
+}
+
+function keepMarkerInsideProvince(point, province, map, padding = 1.55) {
+  if (!province?.paths?.length) return point
+  const rings = province.paths
+    .map((polygon) => (polygon[0] || []).map(([x, y]) => mapPoint(map, x, y)))
+    .filter((ring) => ring.length >= 3)
+  if (!rings.length) return point
+
+  let selectedRing = rings.find((ring) => pointInsideRing(point, ring))
+  if (!selectedRing) {
+    selectedRing = rings.reduce((closestRing, ring) => (
+      nearestRingBoundary(point, ring).distance < nearestRingBoundary(point, closestRing).distance ? ring : closestRing
+    ), rings[0])
+  }
+
+  const boundary = nearestRingBoundary(point, selectedRing)
+  if (pointInsideRing(point, selectedRing) && boundary.distance >= padding) return point
+
+  const provinceAnchor = mapPoint(map, ...(province.label || [map.bounds.minX, map.bounds.minY]))
+  const anchor = pointInsideRing(provinceAnchor, selectedRing)
+    ? provinceAnchor
+    : selectedRing.reduce((sum, vertex) => [sum[0] + vertex[0] / selectedRing.length, sum[1] + vertex[1] / selectedRing.length], [0, 0])
+  const start = pointInsideRing(point, selectedRing) ? point : boundary.point
+
+  for (let step = 1; step <= 100; step += 1) {
+    const ratio = step / 100
+    const candidate = [
+      start[0] + (anchor[0] - start[0]) * ratio,
+      start[1] + (anchor[1] - start[1]) * ratio,
+    ]
+    if (pointInsideRing(candidate, selectedRing) && nearestRingBoundary(candidate, selectedRing).distance >= padding) {
+      return candidate
+    }
+  }
+  return provinceAnchor
+}
+
+function coordinateMarker(row, map, provinceKey, province) {
+  const latitude = parseCoordinate(row.Latitud)
+  const longitude = parseCoordinate(row.Longitud)
+  if (latitude === null || longitude === null) return null
+
+  if (provinceKey === 'galapagos' && pointInsideBounds(latitude, longitude, GALAPAGOS_GEO_BOUNDS)) {
+    return [
+      Math.max(GALAPAGOS_MAP_FRAME.x + 1.55, Math.min(GALAPAGOS_MAP_FRAME.x + GALAPAGOS_MAP_FRAME.width - 1.55,
+        GALAPAGOS_MAP_FRAME.x
+        + ((longitude - GALAPAGOS_GEO_BOUNDS.west) / (GALAPAGOS_GEO_BOUNDS.east - GALAPAGOS_GEO_BOUNDS.west)) * GALAPAGOS_MAP_FRAME.width,
+      )),
+      Math.max(GALAPAGOS_MAP_FRAME.y + 1.55, Math.min(GALAPAGOS_MAP_FRAME.y + GALAPAGOS_MAP_FRAME.height - 1.55,
+        GALAPAGOS_MAP_FRAME.y
+        + ((GALAPAGOS_GEO_BOUNDS.north - latitude) / (GALAPAGOS_GEO_BOUNDS.north - GALAPAGOS_GEO_BOUNDS.south)) * GALAPAGOS_MAP_FRAME.height,
+      )),
+    ]
+  }
+
+  if (!pointInsideBounds(latitude, longitude, MAINLAND_GEO_BOUNDS)) return null
+  const geometryX = map.bounds.minX
+    + ((longitude - MAINLAND_GEO_BOUNDS.west) / (MAINLAND_GEO_BOUNDS.east - MAINLAND_GEO_BOUNDS.west))
+      * (map.bounds.maxX - map.bounds.minX)
+  const geometryY = map.bounds.minY
+    + ((MAINLAND_GEO_BOUNDS.north - latitude) / (MAINLAND_GEO_BOUNDS.north - MAINLAND_GEO_BOUNDS.south))
+      * (map.bounds.maxY - map.bounds.minY)
+  return keepMarkerInsideProvince(mapPoint(map, geometryX, geometryY), province, map)
+}
+
 function markerPositions(rows, map, lookup) {
   const used = new Map()
   return rows.map((row) => {
     const key = normalizeProvinceName(row.Provincia)
     const province = lookup.get(key)
+    const coordinates = coordinateMarker(row, map, key, province)
+    if (coordinates) {
+      return {
+        ...row,
+        markerX: coordinates[0],
+        markerY: coordinates[1],
+        markerUsesCoordinates: true,
+      }
+    }
     const occurrence = used.get(key) || 0
     used.set(key, occurrence + 1)
     const [offsetX, offsetY] = POINT_OFFSETS[occurrence % POINT_OFFSETS.length]
     if (key === 'galapagos') {
       return {
         ...row,
-        markerX: 34.8 + offsetX * 0.16,
-        markerY: 68.5 + offsetY * 0.16,
+        markerX: GALAPAGOS_MAP_FRAME.x + GALAPAGOS_MAP_FRAME.width / 2 + offsetX * 0.16,
+        markerY: GALAPAGOS_MAP_FRAME.y + GALAPAGOS_MAP_FRAME.height / 2 + offsetY * 0.16,
       }
     }
     const [labelX, labelY] = province?.label || [300, 300]
     const [centerX, centerY] = mapPoint(map, labelX, labelY)
+    const fallbackMarker = keepMarkerInsideProvince([
+      centerX + offsetX * map.scaleX,
+      centerY + offsetY * map.scaleY,
+    ], province, map)
     return {
       ...row,
-      markerX: centerX + offsetX * map.scaleX,
-      markerY: centerY + offsetY * map.scaleY,
+      markerX: fallbackMarker[0],
+      markerY: fallbackMarker[1],
     }
   })
 }
@@ -349,7 +495,7 @@ function drawLeaderArrow(doc, startX, startY, endX, endY, color) {
   )
 }
 
-function drawCallout(doc, group, x, markerRows, side) {
+function drawCallout(doc, group, x, map, side) {
   const width = group.width
   const color = group.kind === 'overflow' ? COLORS.red : COLORS.orange
   const pale = group.kind === 'overflow' ? COLORS.paleRed : COLORS.paleOrange
@@ -376,12 +522,12 @@ function drawCallout(doc, group, x, markerRows, side) {
     doc.text(row.CuerpoHidrico || 'Sin nombre', x + 6.2, rowY)
   })
 
-  const groupMarkers = markerRows.filter((row) => normalizeProvinceName(row.Provincia) === group.provinceKey)
-  const target = groupMarkers[Math.min(groupMarkers.length - 1, Math.floor(groupMarkers.length / 2))]
-  if (!target) return
+  const target = group.provinceKey === 'galapagos'
+    ? [GALAPAGOS_MAP_FRAME.x + GALAPAGOS_MAP_FRAME.width / 2, GALAPAGOS_MAP_FRAME.y + GALAPAGOS_MAP_FRAME.height / 2]
+    : mapPoint(map, ...group.label)
   const startX = side === 'left' ? x + width : x
   const startY = group.y + group.height / 2
-  drawLeaderArrow(doc, startX, startY, target.markerX, target.markerY, color)
+  drawLeaderArrow(doc, startX, startY, target[0], target[1], color)
 }
 
 function drawSummaryBox(doc, x, color, title, value) {
@@ -401,18 +547,19 @@ function drawSummaryBox(doc, x, color, title, value) {
 function renderMapPage(doc, overflowRows, risingRows, assets) {
   doc.setFillColor(248, 249, 250)
   doc.rect(0, 17.5, PAGE.width, 178, 'F')
-  doc.addImage(assets.mapBase, 'PNG', -41.5, 17.5, 350.7, 177.8)
+  // Keep the western islands inside the page while leaving the mainland large
+  // enough for the province markers and callout leaders.
+  doc.addImage(assets.mapBase, 'PNG', -10, 18.5, 317, 158.5)
   const mainland = ECUADOR_PROVINCES.filter((province) => normalizeProvinceName(province.name) !== 'galapagos')
-  const map = createStretchedMapLayout({ x: 69.2, y: 16.7, width: 160.3, height: 178.9 }, mainland)
+  const map = createStretchedMapLayout({ x: 90.1, y: 17.8, width: 144.9, height: 159.6 }, mainland)
   const allRows = [...overflowRows, ...risingRows]
-  const counts = activeProvinceCounts(allRows)
-  const maximum = Math.max(1, ...counts.values())
+  const provinceStates = activeProvinceStates(overflowRows, risingRows)
 
   // Preserve the supplied cartography and highlight only provinces represented
   // by the current endpoint data.
   mainland.forEach((province) => {
-    const count = counts.get(normalizeProvinceName(province.name)) || 0
-    if (count) drawProvince(doc, province, map, activeProvinceColor(count, maximum), 0.72)
+    const state = provinceStates.get(normalizeProvinceName(province.name))
+    if (state) drawProvince(doc, province, map, activeProvinceColor(state), 0.78)
   })
 
   const lookup = provinceLookup()
@@ -434,8 +581,8 @@ function renderMapPage(doc, overflowRows, risingRows, assets) {
 
   const groups = groupedCallouts(overflowRows, risingRows, lookup).map((group) => calloutMetrics(doc, group))
   const [leftGroups, rightGroups] = distributeCallouts(groups)
-  leftGroups.forEach((group) => drawCallout(doc, group, 7, group.kind === 'overflow' ? overflowMarkers : risingMarkers, 'left'))
-  rightGroups.forEach((group) => drawCallout(doc, group, PAGE.width - 7 - group.width, group.kind === 'overflow' ? overflowMarkers : risingMarkers, 'right'))
+  leftGroups.forEach((group) => drawCallout(doc, group, 7, map, 'left'))
+  rightGroups.forEach((group) => drawCallout(doc, group, PAGE.width - 7 - group.width, map, 'right'))
 
   drawSummaryBox(doc, 4, COLORS.red, 'Cuerpos hídricos\ndesbordados', overflowRows.length)
   drawSummaryBox(doc, 44, COLORS.orange, 'Cuerpos hídricos con\naumento de nivel', risingRows.length)
@@ -465,7 +612,7 @@ function renderTableSection(doc, rows, options, decoration) {
   // some jsPDF versions, which made the header invisible when rasterized.
   header(doc, decoration.assets, decoration.reportNumber, decoration.cutoff)
   footer(doc)
-  const startY = options.intro ? 49 : 38.5
+  const startY = options.intro ? 45 : 38.5
 
   const bandColor = options.kind === 'overflow' ? COLORS.red : COLORS.orange
   const pale = options.kind === 'overflow' ? COLORS.paleRed : COLORS.paleOrange
@@ -523,7 +670,7 @@ function renderTableSection(doc, rows, options, decoration) {
   if (options.intro) {
     doc.setPage(firstTablePage)
     font(doc, 'normal', 8.5, COLORS.black)
-    doc.text(options.intro, PAGE.left, 43)
+    doc.text(options.intro, PAGE.left, 29.5)
   }
   doc.setPage(lastTablePage)
 }

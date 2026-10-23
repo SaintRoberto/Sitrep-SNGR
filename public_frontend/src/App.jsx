@@ -1745,25 +1745,27 @@ function App() {
           )}
 
           <button type="submit" disabled={loading || !API_BASE_URL || !dateRangeValid}>{loading ? 'Consultando...' : 'Consultar'}</button>
-          <button type="button" onClick={() => onDescargarPrincipal('pdf')} disabled={reportOutputType !== 'sitrep' || loading || hydrometeorologyLoading || !dateRangeValid}>
-            {'Descargar PDF'}
-          </button>
-          <button type="button" onClick={() => onDescargarPrincipal('word')} disabled={reportOutputType !== 'sitrep' || loading || hydrometeorologyLoading || !dateRangeValid}>
-            {'Descargar Word editable'}
-          </button>
-          {tipo === 'lluvias' && (
-            <button type="button" className="infographic-button" onClick={onDescargarInfografia} disabled={reportOutputType !== 'sitrep' || loading || hydrometeorologyLoading || !dateRangeValid}>
+          {reportOutputType === 'sitrep' && (
+            <button type="button" onClick={() => onDescargarPrincipal('pdf')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
+              {'Descargar PDF'}
+            </button>
+          )}
+          {reportOutputType === 'sitrep' && (
+            <button type="button" onClick={() => onDescargarPrincipal('word')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
+              {'Descargar Word editable'}
+            </button>
+          )}
+          {tipo === 'lluvias' && reportOutputType === 'sitrep' && (
+            <button type="button" className="infographic-button" onClick={onDescargarInfografia} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
               {'Descargar Infografía PDF'}
             </button>
           )}
-          {tipo === 'lluvias' && (
-            <button type="button" className="water-report-button" onClick={onDescargarCuerposHidricos} disabled={reportOutputType !== 'water-bodies' || !waterReportNumber.trim() || loading || !dateRangeValid || !shouldShowWaterBodies}>
+          {tipo === 'lluvias' && reportOutputType === 'water-bodies' && (
+            <button type="button" className="water-report-button" onClick={onDescargarCuerposHidricos} disabled={!waterReportNumber.trim() || loading || !dateRangeValid || !shouldShowWaterBodies}>
               {'Descargar Reporte de estado de cuerpos hídricos'}
             </button>
           )}
-          <button type="button" onClick={() => setShowRawJson((v) => !v)} disabled>
-            {showRawJson ? 'Ocultar JSON' : 'Ver JSON'}
-          </button>
+        
         </form>
 
         {DEBUG && <p className="request-url">GET {requestUrl}</p>}

@@ -4,3 +4,4 @@ public_backend/.cuerpos_hidricos.sha256
 public_backend/.cuerpos_hidricos.sha256.tmp
 *.pdf
 .playwright-mcp/
+tmp/pdfs/water_report_output
