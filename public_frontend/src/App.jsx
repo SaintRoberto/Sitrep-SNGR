@@ -581,6 +581,18 @@ function formatDateYmd(value) {
 
 function formatTableCellValue(key, value) {
   if (key === 'Apertura' || key === 'Cierre') return formatDateYmd(value)
+  if (key === 'FechaNovedad') {
+    const raw = String(value ?? '').trim()
+    if (!raw) return ''
+    const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw)
+    if (Number.isNaN(parsed.getTime())) return raw
+    return parsed.toLocaleDateString('es-EC', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    })
+  }
   return value
 }
 
@@ -744,6 +756,34 @@ function EventsPeopleChart({ title, rows }) {
         </g>
       </svg>
     </div>
+  )
+}
+
+function WaterBodiesHtmlReport({ overflowedRows, risingRows }) {
+  const renderTable = (rows, kind, title) => (
+    rows.length > 0 && (
+      <div className={`water-table-block ${kind}`}>
+        <div className="water-table-title">{formatInt(rows.length)} {title}</div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr>{WATER_BODY_COLS.map(([, label]) => <th key={`${kind}-${label}`}>{label}</th>)}</tr></thead>
+            <tbody>{rows.map((row, rowIndex) => (
+              <tr key={`${kind}-${rowIndex}`}>
+                {WATER_BODY_COLS.map(([key]) => <td key={`${kind}-${rowIndex}-${key}`}>{formatTableCellValue(key, row[key]) ?? ''}</td>)}
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      </div>
+    )
+  )
+
+  return (
+    <section className="preview water-bodies-preview">
+      <h2>ESTADO DE CUERPOS HÍDRICOS</h2>
+      {renderTable(overflowedRows, 'overflowed', 'CUERPOS HÍDRICOS DESBORDADOS')}
+      {renderTable(risingRows, 'rising', 'CUERPOS HÍDRICOS CON TENDENCIA A SUBIR DE NIVEL')}
+    </section>
   )
 }
 
@@ -1780,7 +1820,14 @@ function App() {
         {DEBUG && <p className="request-url">GET {requestUrl}</p>}
         {error && <p className="error">{error}</p>}
 
-        {items.length > 0 && (
+        {reportOutputType === 'water-bodies' && thematicReportType === 'water-bodies' && shouldShowWaterBodies && (
+          <WaterBodiesHtmlReport
+            overflowedRows={cuerposHidricosDesbordadosRows}
+            risingRows={cuerposHidricosTendenciaRows}
+          />
+        )}
+
+        {reportOutputType === 'sitrep' && items.length > 0 && (
           <section className="preview">
             <h2>{sitrepNumber.trim() ? `Vista Previa SITREP No. ${sitrepNumber.trim()}` : 'Vista Previa SITREP'}</h2>
 
