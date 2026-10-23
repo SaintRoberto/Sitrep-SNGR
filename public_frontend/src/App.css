@@ -359,7 +359,10 @@ button.water-report-button {
   font-weight: 700;
 }
 
-.water-table-block.overflowed .water-table-title,
+.water-table-block.overflowed .water-table-title {
+  background: #ef1717;
+}
+
 .water-table-block.rising .water-table-title {
   background: #ef7024;
 }

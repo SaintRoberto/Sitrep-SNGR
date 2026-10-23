@@ -161,7 +161,7 @@ function header(doc, assets, reportNumber, cutoff) {
   doc.text(`Fecha y hora de corte: ${cutoff}`, PAGE.left, 14.9)
 
   doc.setFillColor(...COLORS.navy)
-  doc.rect(170, 0.5, PAGE.width - 170, 1.5, 'F')
+  doc.rect(170, 0.2, PAGE.width - 170, 1.5, 'F')
   doc.addImage(assets.logo, 'PNG', 216, 4.9, 74, 11.6)
   drawReportPill(doc, reportNumber)
 }
