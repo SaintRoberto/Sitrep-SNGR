@@ -44,6 +44,13 @@ h1 {
   gap: 12px;
 }
 
+.water-report-fields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .report-type-selector {
   grid-column: 1 / -1;
   display: flex;
@@ -1022,6 +1029,10 @@ td.impact-maximum {
 
   .form-grid,
   .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .water-report-fields {
     grid-template-columns: 1fr;
   }
 

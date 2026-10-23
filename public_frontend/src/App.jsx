@@ -581,18 +581,6 @@ function formatDateYmd(value) {
 
 function formatTableCellValue(key, value) {
   if (key === 'Apertura' || key === 'Cierre') return formatDateYmd(value)
-  if (key === 'FechaNovedad') {
-    const raw = String(value ?? '').trim()
-    if (!raw) return ''
-    const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw)
-    if (Number.isNaN(parsed.getTime())) return raw
-    return parsed.toLocaleDateString('es-EC', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
-      timeZone: 'UTC',
-    })
-  }
   return value
 }
 
@@ -755,47 +743,6 @@ function EventsPeopleChart({ title, rows }) {
           <text x="255" y="0">Personas Impactadas</text>
         </g>
       </svg>
-    </div>
-  )
-}
-
-function WaterBodiesTables({ overflowedRows, risingRows, overflowedTotal, risingTotal }) {
-  return (
-    <div className="water-bodies-section">
-      <h3>ESTADO DE CUERPOS HÍDRICOS</h3>
-      <p>
-        Al cierre de este informe, las Unidades de Monitoreo de la SNGR han identificado:{' '}
-        <strong>{formatInt(overflowedTotal)} cuerpos hídricos desbordados</strong> y{' '}
-        <strong>{formatInt(risingTotal)} cuerpos hídricos con tendencia a subir de nivel.</strong>
-      </p>
-
-      {overflowedRows.length > 0 && (
-        <div className="water-table-block overflowed">
-          <div className="water-table-title">{formatInt(overflowedRows.length)} CUERPOS HÍDRICOS DESBORDADOS</div>
-          <div className="table-wrap">
-            <table>
-              <thead><tr>{WATER_BODY_COLS.map(([, label]) => <th key={`desbordado-${label}`}>{label}</th>)}</tr></thead>
-              <tbody>{overflowedRows.map((row, rowIndex) => (
-                <tr key={`desbordado-${rowIndex}`}>{WATER_BODY_COLS.map(([key]) => <td key={`desbordado-${rowIndex}-${key}`}>{formatTableCellValue(key, row[key]) ?? ''}</td>)}</tr>
-              ))}</tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {risingRows.length > 0 && (
-        <div className="water-table-block rising">
-          <div className="water-table-title">{formatInt(risingRows.length)} CUERPOS HÍDRICOS CON TENDENCIA A SUBIR DE NIVEL</div>
-          <div className="table-wrap">
-            <table>
-              <thead><tr>{WATER_BODY_COLS.map(([, label]) => <th key={`tendencia-${label}`}>{label}</th>)}</tr></thead>
-              <tbody>{risingRows.map((row, rowIndex) => (
-                <tr key={`tendencia-${rowIndex}`}>{WATER_BODY_COLS.map(([key]) => <td key={`tendencia-${rowIndex}-${key}`}>{formatTableCellValue(key, row[key]) ?? ''}</td>)}</tr>
-              ))}</tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -1267,24 +1214,6 @@ function App() {
       if (!PUBLIC_API_KEY) throw new Error('Falta VITE_PUBLIC_API_KEY en el frontend.')
       validateDateRange()
 
-      if (tipo === 'lluvias' && reportOutputType === 'water-bodies' && thematicReportType === 'water-bodies') {
-        const [responseCuerposDesbordados, responseCuerposTendencia] = await Promise.all([
-          fetch(buildApiUrl(ENDPOINTS.cuerposHidricosDesbordados)),
-          fetch(buildApiUrl(ENDPOINTS.cuerposHidricosTendencia)),
-        ])
-        const [dataCuerposDesbordados, dataCuerposTendencia] = await Promise.all([
-          responseCuerposDesbordados.json(),
-          responseCuerposTendencia.json(),
-        ])
-        if (!responseCuerposDesbordados.ok) throw new Error(dataCuerposDesbordados?.error || 'Error consultando cuerpos hídricos desbordados')
-        if (!responseCuerposTendencia.ok) throw new Error(dataCuerposTendencia?.error || 'Error consultando cuerpos hídricos con tendencia a aumentar')
-
-        setResponseData(null)
-        setCuerposHidricosDesbordadosItems(dataCuerposDesbordados?.items || [])
-        setCuerposHidricosTendenciaItems(dataCuerposTendencia?.items || [])
-        return
-      }
-
       if (tipo === 'lluvias') {
         const trimmedProvincia = provinciaId.trim()
         const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias, trimmedProvincia)
@@ -1660,9 +1589,7 @@ function App() {
   return (
     <main className="app-shell">
       <section className="card">
-        <h1>Consulta de Eventos SITREP</h1>
-        <p className="muted">Ambiente actual: <strong>{API_ENV}</strong></p>
-
+        <h1>Consulta de Eventos </h1>
         <form onSubmit={onConsultar} className="form-grid">
           {tipo === 'lluvias' && (
             <fieldset className="report-type-selector">
@@ -1683,47 +1610,30 @@ function App() {
                   name="report-output-type"
                   value="water-bodies"
                   checked={reportOutputType === 'water-bodies'}
-                  onChange={(event) => {
-                    setReportOutputType(event.target.value)
-                    setProvinciaId('')
-                  }}
+                  onChange={(event) => setReportOutputType(event.target.value)}
                 />
                 <span>Cuerpos hídricos</span>
               </label>
             </fieldset>
           )}
 
-          {tipo === 'lluvias' && reportOutputType === 'water-bodies' && (
-            <label>
-              Tipo de reporte
-              <select value={thematicReportType} onChange={(event) => setThematicReportType(event.target.value)}>
-                <option value="water-bodies">Estado de cuerpos hídricos</option>
-                <option value="forest-fires">Estado de incendios forestales</option>
-              </select>
-            </label>
-          )}
+          <label>
+            Tipo de evento
+            <select value={tipo} onChange={(event) => {
+              const nextType = event.target.value
+              setTipo(nextType)
+              if (nextType !== 'lluvias') setReportOutputType('sitrep')
+            }}>
+              <option value="lluvias">Eventos por lluvias</option>
+              <option value="noLluvias">Eventos no por lluvias</option>
+              <option value="incendios">Eventos por incendios forestales</option>
+            </select>
+          </label>
 
-          {reportOutputType !== 'water-bodies' && (
-            <label>
-              Tipo de evento
-              <select value={tipo} onChange={(event) => {
-                const nextType = event.target.value
-                setTipo(nextType)
-                if (nextType !== 'lluvias') setReportOutputType('sitrep')
-              }}>
-                <option value="lluvias">Eventos por lluvias</option>
-                <option value="noLluvias">Eventos no por lluvias</option>
-                <option value="incendios">Eventos por incendios forestales</option>
-              </select>
-            </label>
-          )}
-
-          {reportOutputType !== 'water-bodies' && (
-            <label>
-              ProvinciaID (opcional)
-              <input type="number" min="1" placeholder="Ej: 1" value={provinciaId} onChange={(e) => setProvinciaId(e.target.value)} />
-            </label>
-          )}
+          <label>
+            ProvinciaID (opcional)
+            <input type="number" min="1" placeholder="Ej: 1" value={provinciaId} onChange={(e) => setProvinciaId(e.target.value)} />
+          </label>
 
           <label>
             Desde
@@ -1788,7 +1698,7 @@ function App() {
             </label>
           )}
 
-          {tipo === 'lluvias' && reportOutputType === 'water-bodies' && thematicReportType === 'water-bodies' && (
+          {tipo === 'lluvias' && reportOutputType === 'water-bodies' && (
             <label>
               Reporte No. de cuerpos hídricos
               <input
@@ -1848,7 +1758,7 @@ function App() {
               {'Descargar Infografía PDF'}
             </button>
           )}
-          {tipo === 'lluvias' && reportOutputType === 'water-bodies' && thematicReportType === 'water-bodies' && (
+          {tipo === 'lluvias' && reportOutputType === 'water-bodies' && (
             <button type="button" className="water-report-button" onClick={onDescargarCuerposHidricos} disabled={!waterReportNumber.trim() || loading || !dateRangeValid || !shouldShowWaterBodies}>
               {'Descargar Reporte de estado de cuerpos hídricos'}
             </button>
@@ -1859,18 +1769,7 @@ function App() {
         {DEBUG && <p className="request-url">GET {requestUrl}</p>}
         {error && <p className="error">{error}</p>}
 
-        {reportOutputType === 'water-bodies' && thematicReportType === 'water-bodies' && shouldShowWaterBodies && (
-          <section className="preview water-bodies-preview">
-            <WaterBodiesTables
-              overflowedRows={cuerposHidricosDesbordadosRows}
-              risingRows={cuerposHidricosTendenciaRows}
-              overflowedTotal={cuerposHidricosDesbordadosItems.length}
-              risingTotal={cuerposHidricosTendenciaItems.length}
-            />
-          </section>
-        )}
-
-        {reportOutputType === 'sitrep' && items.length > 0 && (
+        {items.length > 0 && (
           <section className="preview">
             <h2>{sitrepNumber.trim() ? `Vista Previa SITREP No. ${sitrepNumber.trim()}` : 'Vista Previa SITREP'}</h2>
 
@@ -1914,12 +1813,40 @@ function App() {
                 )}
 
                 {shouldShowWaterBodies && (
-                  <WaterBodiesTables
-                    overflowedRows={cuerposHidricosDesbordadosRows}
-                    risingRows={cuerposHidricosTendenciaRows}
-                    overflowedTotal={cuerposHidricosDesbordadosItems.length}
-                    risingTotal={cuerposHidricosTendenciaItems.length}
-                  />
+                  <div className="water-bodies-section">
+                    <h3>ESTADO DE CUERPOS DE AGUA.</h3>
+                    <p>
+                      Al cierre de este informe, las Unidades de Monitoreo de la SNGR han identificado: <strong>{formatInt(cuerposHidricosTendenciaItems.length)} cuerpos hídricos con tendencia a subir de nivel</strong> y <strong>{formatInt(cuerposHidricosDesbordadosItems.length)} cuerpos hídricos desbordados.</strong>
+                    </p>
+
+                    {cuerposHidricosTendenciaRows.length > 0 && (
+                      <div className="water-table-block rising">
+                        <div className="water-table-title">{formatInt(cuerposHidricosTendenciaRows.length)} CUERPOS HÍDRICOS CON TENDENCIA A SUBIR DE NIVEL</div>
+                        <div className="table-wrap">
+                          <table>
+                            <thead><tr>{WATER_BODY_COLS.map(([, label]) => <th key={`tendencia-${label}`}>{label}</th>)}</tr></thead>
+                            <tbody>{cuerposHidricosTendenciaRows.map((row, rowIndex) => (
+                              <tr key={`tendencia-${rowIndex}`}>{WATER_BODY_COLS.map(([key]) => <td key={`tendencia-${rowIndex}-${key}`}>{formatTableCellValue(key, row[key]) ?? ''}</td>)}</tr>
+                            ))}</tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {cuerposHidricosDesbordadosRows.length > 0 && (
+                      <div className="water-table-block overflowed">
+                        <div className="water-table-title">{formatInt(cuerposHidricosDesbordadosRows.length)} CUERPOS HÍDRICOS DESBORDADOS</div>
+                        <div className="table-wrap">
+                          <table>
+                            <thead><tr>{WATER_BODY_COLS.map(([, label]) => <th key={`desbordado-${label}`}>{label}</th>)}</tr></thead>
+                            <tbody>{cuerposHidricosDesbordadosRows.map((row, rowIndex) => (
+                              <tr key={`desbordado-${rowIndex}`}>{WATER_BODY_COLS.map(([key]) => <td key={`desbordado-${rowIndex}-${key}`}>{formatTableCellValue(key, row[key]) ?? ''}</td>)}</tr>
+                            ))}</tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </>
             )}
