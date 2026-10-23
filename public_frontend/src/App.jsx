@@ -1610,55 +1610,80 @@ function App() {
                   name="report-output-type"
                   value="water-bodies"
                   checked={reportOutputType === 'water-bodies'}
-                  onChange={(event) => setReportOutputType(event.target.value)}
+                  onChange={(event) => {
+                    setReportOutputType(event.target.value)
+                    setProvinciaId('')
+                  }}
                 />
                 <span>Cuerpos hídricos</span>
               </label>
             </fieldset>
           )}
 
-          <label>
-            Tipo de evento
-            <select value={tipo} onChange={(event) => {
-              const nextType = event.target.value
-              setTipo(nextType)
-              if (nextType !== 'lluvias') setReportOutputType('sitrep')
-            }}>
-              <option value="lluvias">Eventos por lluvias</option>
-              <option value="noLluvias">Eventos no por lluvias</option>
-              <option value="incendios">Eventos por incendios forestales</option>
-            </select>
-          </label>
+          {reportOutputType === 'water-bodies' ? (
+            <>
+              <div className="water-report-heading-fields">
+                <label>
+                  Tipo de reporte
+                  <select value={thematicReportType} onChange={(event) => setThematicReportType(event.target.value)}>
+                    <option value="water-bodies">Estado de cuerpos hídricos</option>
+                    <option value="forest-fires">Estado de incendios forestales</option>
+                  </select>
+                </label>
+                {thematicReportType === 'water-bodies' && (
+                  <label>
+                    Reporte No. de cuerpos hídricos
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      required
+                      placeholder="Ej: 178"
+                      value={waterReportNumber}
+                      onChange={(event) => setWaterReportNumber(event.target.value.replace(/\D/g, ''))}
+                    />
+                  </label>
+                )}
+              </div>
 
-          <label>
-            ProvinciaID (opcional)
-            <input type="number" min="1" placeholder="Ej: 1" value={provinciaId} onChange={(e) => setProvinciaId(e.target.value)} />
-          </label>
-
-          <label>
-            Desde
-            <input
-              type="datetime-local"
-              step="60"
-              required
-              max={hasta || maxSelectableDateTime}
-              value={desde}
-              onChange={(e) => setDesde(e.target.value)}
-            />
-          </label>
-
-          <label>
-            Hasta
-            <input
-              type="datetime-local"
-              step="60"
-              required
-              min={desde}
-              max={maxSelectableDateTime}
-              value={hasta}
-              onChange={(e) => setHasta(e.target.value)}
-            />
-          </label>
+              <div className="water-report-fields">
+                <label>
+                  Desde
+                  <input type="datetime-local" step="60" required max={hasta || maxSelectableDateTime} value={desde} onChange={(e) => setDesde(e.target.value)} />
+                </label>
+                <label>
+                  Hasta
+                  <input type="datetime-local" step="60" required min={desde} max={maxSelectableDateTime} value={hasta} onChange={(e) => setHasta(e.target.value)} />
+                </label>
+              </div>
+            </>
+          ) : (
+            <>
+              <label>
+                Tipo de evento
+                <select value={tipo} onChange={(event) => {
+                  const nextType = event.target.value
+                  setTipo(nextType)
+                  if (nextType !== 'lluvias') setReportOutputType('sitrep')
+                }}>
+                  <option value="lluvias">Eventos por lluvias</option>
+                  <option value="noLluvias">Eventos no por lluvias</option>
+                  <option value="incendios">Eventos por incendios forestales</option>
+                </select>
+              </label>
+              <label>
+                ProvinciaID (opcional)
+                <input type="number" min="1" placeholder="Ej: 1" value={provinciaId} onChange={(e) => setProvinciaId(e.target.value)} />
+              </label>
+              <label>
+                Desde
+                <input type="datetime-local" step="60" required max={hasta || maxSelectableDateTime} value={desde} onChange={(e) => setDesde(e.target.value)} />
+              </label>
+              <label>
+                Hasta
+                <input type="datetime-local" step="60" required min={desde} max={maxSelectableDateTime} value={hasta} onChange={(e) => setHasta(e.target.value)} />
+              </label>
+            </>
+          )}
 
           {reportOutputType === 'sitrep' && (
             <>
@@ -1694,20 +1719,6 @@ function App() {
                 placeholder="Ej: 34"
                 value={sitrepNumber}
                 onChange={(e) => setSitrepNumber(e.target.value)}
-              />
-            </label>
-          )}
-
-          {tipo === 'lluvias' && reportOutputType === 'water-bodies' && (
-            <label>
-              Reporte No. de cuerpos hídricos
-              <input
-                type="text"
-                inputMode="numeric"
-                required
-                placeholder="Ej: 178"
-                value={waterReportNumber}
-                onChange={(event) => setWaterReportNumber(event.target.value.replace(/\D/g, ''))}
               />
             </label>
           )}
