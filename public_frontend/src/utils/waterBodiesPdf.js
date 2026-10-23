@@ -566,18 +566,17 @@ function renderMapPage(doc, overflowRows, risingRows, assets) {
   const positionedRows = markerPositions(allRows, map, lookup)
   const overflowMarkers = positionedRows.slice(0, overflowRows.length)
   const risingMarkers = positionedRows.slice(overflowRows.length)
-  overflowMarkers.forEach((row) => {
-    doc.setFillColor(...COLORS.red)
+  const drawNumberedMarker = (row, color) => {
+    const markerNumber = String(row.__no__)
+    doc.setFillColor(...color)
     doc.setDrawColor(...COLORS.white)
-    doc.setLineWidth(0.3)
-    doc.circle(row.markerX, row.markerY, 1.15, 'FD')
-  })
-  risingMarkers.forEach((row) => {
-    doc.setFillColor(...COLORS.orange)
-    doc.setDrawColor(...COLORS.white)
-    doc.setLineWidth(0.3)
-    doc.circle(row.markerX, row.markerY, 1.15, 'FD')
-  })
+    doc.setLineWidth(0.25)
+    doc.circle(row.markerX, row.markerY, 1.55, 'FD')
+    font(doc, 'bold', markerNumber.length > 1 ? 4.7 : 5.3, COLORS.white)
+    doc.text(markerNumber, row.markerX, row.markerY + 0.55, { align: 'center' })
+  }
+  overflowMarkers.forEach((row) => drawNumberedMarker(row, COLORS.red))
+  risingMarkers.forEach((row) => drawNumberedMarker(row, COLORS.orange))
 
   const groups = groupedCallouts(overflowRows, risingRows, lookup).map((group) => calloutMetrics(doc, group))
   const [leftGroups, rightGroups] = distributeCallouts(groups)
