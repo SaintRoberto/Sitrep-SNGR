@@ -449,10 +449,6 @@ def main():
 
     rows, content_hash = descargar_sheet()
 
-    if content_hash == leer_hash_anterior():
-        print("Sin cambios en Google Sheet. No se actualizó MySQL.")
-        return
-
     importar_mysql(rows)
     guardar_hash(content_hash)
 
