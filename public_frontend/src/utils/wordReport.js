@@ -195,15 +195,17 @@ function periodMetadata(publishedAt, sitrepNumber, startDate, endDate) {
   const end = localDate(endDate, publishedAt)
   const longOptions = { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }
   const numericOptions = { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }
+  const startTitle = start.toLocaleDateString('es-EC', { day: 'numeric', month: 'long', year: 'numeric' })
   const sourceDate = end.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const sourceTime = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`
   return {
     year: end.getFullYear(),
     startLong: start.toLocaleString('es-EC', longOptions),
     endLong: end.toLocaleString('es-EC', longOptions),
+    startTitle,
     startNumeric: start.toLocaleString('es-EC', numericOptions),
     endNumeric: end.toLocaleString('es-EC', numericOptions),
-    title: `${sitrepNumber ? `SitRep ${sitrepNumber}` : 'SitRep'} – Lluvias con incidencia del Evento El Niño, del 29 de agosto de 2026 a la fecha`,
+    title: `${sitrepNumber ? `SitRep ${sitrepNumber}` : 'SitRep'} – Lluvias con incidencia del Evento El Niño, del ${startTitle} a la fecha`,
     coverage: `Este informe cubre el período desde el ${start.toLocaleString('es-EC', numericOptions)} hasta el ${end.toLocaleString('es-EC', numericOptions)}`,
     source: `Fuente: Unidades de Monitoreo SNGR - Instituciones del SNDGIRD. ${sourceDate} - ${sourceTime}`,
   }
@@ -1096,7 +1098,7 @@ export async function buildEventosLluviasWord({
   const addShelter = (number, title, shelterItems, priority, action) => {
     if (!shelterItems.length) return
     children.push(sectionTitle(number, title))
-    children.push(paragraphFromSegments([['Desde el ', false], ['29 de agosto del 2026, ', true], [`se han ${action} `, false], [`${fmt(shelterItems.length)} alojamientos temporales.`, true]]))
+    children.push(paragraphFromSegments([['Desde el ', false], [`${metadata.startTitle}, `, true], [`se han ${action} `, false], [`${fmt(shelterItems.length)} alojamientos temporales.`, true]]))
     addGenericTable(children, shelterItems, priority)
     children.push(sourceLine(metadata))
   }

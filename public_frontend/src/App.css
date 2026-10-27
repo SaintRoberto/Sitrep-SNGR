@@ -44,12 +44,23 @@ h1 {
   gap: 12px;
 }
 
+.sitrep-settings-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .water-report-heading-fields,
 .water-report-fields {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.water-report-author-field {
+  grid-column: 1 / -1;
 }
 
 .report-type-selector {
@@ -132,6 +143,87 @@ button.infographic-button {
 
 button.water-report-button {
   background: #ef7024;
+}
+
+button.whatsapp-message-button {
+  background: #25d366;
+}
+
+.whatsapp-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.whatsapp-modal {
+  width: min(820px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 20px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.32);
+}
+
+.whatsapp-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.whatsapp-modal-header h2,
+.whatsapp-modal > p {
+  margin: 0 0 12px;
+}
+
+.whatsapp-modal-close {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.whatsapp-message-text {
+  width: 100%;
+  min-height: 52vh;
+  resize: vertical;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 14px;
+  color: #172033;
+  background: #f8fafc;
+  font: 14px/1.45 Consolas, monospace;
+}
+
+.whatsapp-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.whatsapp-modal-actions button {
+  grid-column: auto;
+  min-width: 140px;
+}
+
+.whatsapp-modal-actions .secondary {
+  background: #64748b;
+}
+
+.whatsapp-copy-status {
+  margin: 10px 0 0 !important;
+  color: #0f766e;
+  font-weight: 700;
 }
 
 .request-url {
@@ -1034,7 +1126,8 @@ td.impact-maximum {
   }
 
   .water-report-heading-fields,
-  .water-report-fields {
+  .water-report-fields,
+  .sitrep-settings-row {
     grid-template-columns: 1fr;
   }
 

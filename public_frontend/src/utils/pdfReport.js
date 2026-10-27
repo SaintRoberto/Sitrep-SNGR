@@ -196,13 +196,14 @@ function periodMetadata(publishedAt, sitrepNumber, startDate, endDate) {
   const numericOptions = { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }
   const startLong = start.toLocaleString('es-EC', longOptions)
   const endLong = end.toLocaleString('es-EC', longOptions)
+  const startTitle = start.toLocaleDateString('es-EC', { day: 'numeric', month: 'long', year: 'numeric' })
   const startNumeric = start.toLocaleString('es-EC', numericOptions)
   const endNumeric = end.toLocaleString('es-EC', numericOptions)
   const sourceDate = end.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const sourceTime = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`
   return {
-    year: end.getFullYear(), startLong, endLong, startNumeric, endNumeric,
-    title: `${sitrepNumber ? `SitRep ${sitrepNumber}` : 'SitRep'} – Lluvias con incidencia del Evento El Niño, del 29 de agosto de 2026 a la fecha`,
+    year: end.getFullYear(), startLong, endLong, startTitle, startNumeric, endNumeric,
+    title: `${sitrepNumber ? `SitRep ${sitrepNumber}` : 'SitRep'} – Lluvias con incidencia del Evento El Niño, del ${startTitle} a la fecha`,
     coverage: `Este informe cubre el período desde el ${startNumeric} hasta el ${endNumeric}`,
     source: `Fuente: Unidades de Monitoreo SNGR - Instituciones del SNDGIRD. ${sourceDate} - ${sourceTime}`,
   }
@@ -1103,7 +1104,7 @@ function renderTemporaryShelterSection(doc, currentY, number, title, items, prio
   const shelterText = shelterCount === 1 ? 'alojamiento temporal' : 'alojamientos temporales'
   currentY = renderRichParagraph(doc, currentY, [
     { text: 'Desde el' },
-    { text: '29 de agosto del 2026,', bold: true },
+    { text: `${metadata.startTitle},`, bold: true },
     { text: actionText },
     { text: `${fmt(shelterCount)} ${shelterText}.`, bold: true },
   ], { fontSize: 8.4, lineHeight: 4, estimatedHeight: 6 })

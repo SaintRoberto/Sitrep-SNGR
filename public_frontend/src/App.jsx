@@ -759,7 +759,7 @@ function EventsPeopleChart({ title, rows }) {
   )
 }
 
-function WaterBodiesHtmlReport({ overflowedRows, risingRows }) {
+function WaterBodiesContent({ overflowedRows, risingRows }) {
   const renderTable = (rows, kind, title) => (
     rows.length > 0 && (
       <div className={`water-table-block ${kind}`}>
@@ -779,12 +779,70 @@ function WaterBodiesHtmlReport({ overflowedRows, risingRows }) {
   )
 
   return (
-    <section className="preview water-bodies-preview">
-      <h2>ESTADO DE CUERPOS HÍDRICOS</h2>
+    <div className="water-bodies-section">
+      <h3>ESTADO DE CUERPOS DE AGUA</h3>
+      <p>
+        Al cierre de este informe, las Unidades de Monitoreo de la SNGR han identificado:{' '}
+        <strong>{formatInt(overflowedRows.length)} cuerpos hídricos desbordados</strong> y{' '}
+        <strong>{formatInt(risingRows.length)} cuerpos hídricos con tendencia a subir de nivel.</strong>
+      </p>
       {renderTable(overflowedRows, 'overflowed', 'CUERPOS HÍDRICOS DESBORDADOS')}
       {renderTable(risingRows, 'rising', 'CUERPOS HÍDRICOS CON TENDENCIA A SUBIR DE NIVEL')}
+    </div>
+  )
+}
+
+function WaterBodiesHtmlReport({ overflowedRows, risingRows }) {
+  return (
+    <section className="preview water-bodies-preview">
+      <WaterBodiesContent overflowedRows={overflowedRows} risingRows={risingRows} />
     </section>
   )
+}
+
+function formatWhatsAppCutoff(value) {
+  const raw = String(value || '').trim()
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
+  if (!match) return raw
+  const [, year, month, day, hours, minutes] = match
+  return `${day}/${month}/${year} – ${hours}h${minutes}`
+}
+
+function whatsappWaterSection(rows, emoji, title) {
+  const grouped = new Map()
+  rows.forEach((row) => {
+    const province = String(row?.Provincia || 'Sin provincia').trim()
+    if (!grouped.has(province)) grouped.set(province, [])
+    grouped.get(province).push(row)
+  })
+
+  const lines = [`${emoji} *${String(rows.length).padStart(2, '0')} ${title}*`]
+  grouped.forEach((provinceRows, province) => {
+    lines.push('', `*${province}*`)
+    provinceRows.forEach((row) => {
+      const location = [row?.Canton, row?.Parroquia, row?.Sector]
+        .map((part) => String(part || '').trim())
+        .filter(Boolean)
+        .join('/')
+      const waterBody = String(row?.CuerpoHidrico || 'Sin nombre registrado').trim()
+      lines.push(`• ${location} - *${waterBody}*`)
+    })
+  })
+  return lines.join('\n')
+}
+
+function buildWaterBodiesWhatsAppMessage(overflowedRows, risingRows, cutoff, author) {
+  return [
+    '*MONITOREO DE AMENAZAS – CUERPOS HÍDRICOS*',
+    '*LOCALIZACIÓN: Nacional*',
+    `FECHA Y HORA DE MONITOREO (CORTE): *${formatWhatsAppCutoff(cutoff)}*`,
+    '',
+    whatsappWaterSection(overflowedRows, '🔴', 'CUERPOS HÍDRICOS DESBORDADOS'),
+    '',
+    whatsappWaterSection(risingRows, '🟠', 'CUERPOS HÍDRICOS CON TENDENCIA A AUMENTAR DE NIVEL'),
+    '',
+    `ELABORADO POR: ${String(author || '').trim() || 'Pendiente de ingresar'} - SNGR /Dirección de Monitoreo`,
+  ].join('\n')
 }
 
 function App() {
@@ -794,7 +852,11 @@ function App() {
   const [reportOutputType, setReportOutputType] = useState('sitrep')
   const [thematicReportType, setThematicReportType] = useState('water-bodies')
   const [sitrepNumber, setSitrepNumber] = useState('')
+  const [highImpactEventCount, setHighImpactEventCount] = useState('15')
   const [waterReportNumber, setWaterReportNumber] = useState('')
+  const [waterReportAuthor, setWaterReportAuthor] = useState('')
+  const [showWhatsAppModal, setShowWhatsAppModal] = useState(false)
+  const [whatsAppCopyStatus, setWhatsAppCopyStatus] = useState('')
   const [affectationLevel, setAffectationLevel] = useState('')
   const [analystName, setAnalystName] = useState('')
   const [analystEmail, setAnalystEmail] = useState('')
@@ -839,6 +901,13 @@ function App() {
     return query ? `${base}?${query}` : base
   }, [desde, hasta])
   const requestUrl = useMemo(() => buildApiUrl(ENDPOINTS[tipo], provinciaId), [buildApiUrl, tipo, provinciaId])
+  const buildHighImpactEventsUrl = useCallback(() => {
+    const url = buildApiUrl(ENDPOINTS.eventosAltoImpactoLluvias)
+    const count = highImpactEventCount.trim()
+    if (!count) return url
+    const separator = url.includes('?') ? '&' : '?'
+    return `${url}${separator}cantidad=${encodeURIComponent(count)}`
+  }, [buildApiUrl, highImpactEventCount])
   const dateRangeValid = Boolean(desde && hasta && desde <= hasta)
 
   const validateDateRange = () => {
@@ -849,6 +918,13 @@ function App() {
   const validateAffectationLevel = () => {
     if (!/^[1-5]$/.test(affectationLevel.trim())) {
       throw new Error('Ingresa un nivel de afectación numérico entre 1 y 5.')
+    }
+  }
+
+  const validateHighImpactEventCount = () => {
+    const count = highImpactEventCount.trim()
+    if (count && (!/^\d+$/.test(count) || Number(count) < 1 || Number(count) > 50)) {
+      throw new Error('Ingresa una cantidad de eventos de alto impacto entre 1 y 50.')
     }
   }
 
@@ -1202,6 +1278,10 @@ function App() {
     })),
     [cuerposHidricosTendenciaItems]
   )
+  const whatsAppWaterMessage = useMemo(
+    () => buildWaterBodiesWhatsAppMessage(cuerposHidricosDesbordadosRows, cuerposHidricosTendenciaRows, hasta, waterReportAuthor),
+    [cuerposHidricosDesbordadosRows, cuerposHidricosTendenciaRows, hasta, waterReportAuthor]
+  )
   const shouldShowWaterBodies = cuerposHidricosDesbordadosItems.length > 0 || cuerposHidricosTendenciaItems.length > 0
   const orderedNivelesAlertaItems = useMemo(() => sortByGovernmentLevel(nivelesAlertaItems), [nivelesAlertaItems])
   const coeNacionalActivo = useMemo(() => uniqueActiveCoeRows(coeNacionalItems, ['TipoCOE'])[0] || null, [coeNacionalItems])
@@ -1253,6 +1333,7 @@ function App() {
     try {
       if (!PUBLIC_API_KEY) throw new Error('Falta VITE_PUBLIC_API_KEY en el frontend.')
       validateDateRange()
+      if (tipo === 'lluvias') validateHighImpactEventCount()
 
       if (tipo === 'lluvias') {
         const trimmedProvincia = provinciaId.trim()
@@ -1270,7 +1351,7 @@ function App() {
         const nivelesAlertaUrl = buildApiUrl(ENDPOINTS.nivelesAlertaLluvias)
         const declaratoriasEmergenciaUrl = buildApiUrl(ENDPOINTS.declaratoriasEmergenciaLluvias)
         const coeUrl = (tipoCoe) => `${buildApiUrl(ENDPOINTS.coesActivadosLluvias)}&tipo=${encodeURIComponent(tipoCoe)}`
-        const eventosAltoImpactoUrl = buildApiUrl(ENDPOINTS.eventosAltoImpactoLluvias)
+        const eventosAltoImpactoUrl = buildHighImpactEventsUrl()
 
         const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAlojamientos, responseAlojamientosCerrados, responseAsistenciaSNDGIRD, responsePersonasFallecidas, responseEventosMes, responseViasCategoria, responseCuerposDesbordados, responseCuerposTendencia, responseNivelesAlerta, responseDeclaratoriasEmergencia, responseCoeNacional, responseCoeProvincial, responseCoeMunicipal, responseCopae, responseEventosAltoImpacto] = await Promise.all([
           fetch(requestUrl),
@@ -1427,6 +1508,7 @@ function App() {
       if (!PUBLIC_API_KEY) throw new Error('Falta VITE_PUBLIC_API_KEY en el frontend.')
       validateDateRange()
       validateAffectationLevel()
+      validateHighImpactEventCount()
       validateAnalystName()
       const trimmedProvincia = provinciaId.trim()
       const mainUrl = buildApiUrl(ENDPOINTS.lluvias, trimmedProvincia)
@@ -1444,7 +1526,7 @@ function App() {
       const nivelesAlertaUrl = buildApiUrl(ENDPOINTS.nivelesAlertaLluvias)
       const declaratoriasEmergenciaUrl = buildApiUrl(ENDPOINTS.declaratoriasEmergenciaLluvias)
       const coeUrl = (tipoCoe) => `${buildApiUrl(ENDPOINTS.coesActivadosLluvias)}&tipo=${encodeURIComponent(tipoCoe)}`
-      const eventosAltoImpactoUrl = buildApiUrl(ENDPOINTS.eventosAltoImpactoLluvias)
+      const eventosAltoImpactoUrl = buildHighImpactEventsUrl()
 
       const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAsistenciaSNDGIRD, responseAlojamientos, responseAlojamientosCerrados, responsePersonasFallecidas, responseEventosMes, responseViasCategoria, responseCuerposDesbordados, responseCuerposTendencia, responseNivelesAlerta, responseDeclaratoriasEmergencia, responseCoeNacional, responseCoeProvincial, responseCoeMunicipal, responseCopae, responseEventosAltoImpacto] = await Promise.all([
         fetch(mainUrl),
@@ -1626,6 +1708,15 @@ function App() {
     }
   }
 
+  const onCopyWhatsAppMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(whatsAppWaterMessage)
+      setWhatsAppCopyStatus('Mensaje copiado al portapapeles.')
+    } catch {
+      setWhatsAppCopyStatus('No se pudo copiar automáticamente. Selecciona el texto y cópialo manualmente.')
+    }
+  }
+
   return (
     <main className="app-shell">
       <section className="card">
@@ -1692,9 +1783,21 @@ function App() {
                 </label>
                 <label>
                   Hasta
-                  <input type="datetime-local" step="60" required min={desde} max={maxSelectableDateTime} value={hasta} onChange={(e) => setHasta(e.target.value)} />
+                  <input type="datetime-local" step="60" required value={hasta} onChange={(e) => setHasta(e.target.value)} />
                 </label>
               </div>
+              {thematicReportType === 'water-bodies' && (
+                <label className="water-report-author-field">
+                  Elaborado por
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: Joao Aspiazu"
+                    value={waterReportAuthor}
+                    onChange={(event) => setWaterReportAuthor(event.target.value)}
+                  />
+                </label>
+              )}
             </>
           ) : (
             <>
@@ -1751,32 +1854,44 @@ function App() {
           )}
 
           {tipo === 'lluvias' && reportOutputType === 'sitrep' && (
-            <label>
-              Nro. de SITREP / Infografía (opcional)
-              <input
-                type="text"
-                inputMode="numeric"
-                placeholder="Ej: 34"
-                value={sitrepNumber}
-                onChange={(e) => setSitrepNumber(e.target.value)}
-              />
-            </label>
-          )}
+            <div className="sitrep-settings-row">
+              <label>
+                Nro. de SITREP / Infografía (opcional)
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="Ej: 34"
+                  value={sitrepNumber}
+                  onChange={(e) => setSitrepNumber(e.target.value)}
+                />
+              </label>
 
-          {tipo === 'lluvias' && reportOutputType === 'sitrep' && (
-            <label>
-              Nivel de afectación
-              <input
-                type="number"
-                min="1"
-                max="5"
-                step="1"
-                required
-                placeholder="Ej: 3"
-                value={affectationLevel}
-                onChange={(e) => setAffectationLevel(e.target.value)}
-              />
-            </label>
+              <label>
+                Cantidad de eventos de alto impacto
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  step="1"
+                  value={highImpactEventCount}
+                  onChange={(e) => setHighImpactEventCount(e.target.value)}
+                />
+              </label>
+
+              <label>
+                Nivel de afectación
+                <input
+                  type="number"
+                  min="1"
+                  max="5"
+                  step="1"
+                  required
+                  placeholder="Ej: 3"
+                  value={affectationLevel}
+                  onChange={(e) => setAffectationLevel(e.target.value)}
+                />
+              </label>
+            </div>
           )}
 
           {tipo === 'lluvias' && reportOutputType === 'sitrep' && (
@@ -1812,6 +1927,19 @@ function App() {
           {tipo === 'lluvias' && reportOutputType === 'water-bodies' && (
             <button type="button" className="water-report-button" onClick={onDescargarCuerposHidricos} disabled={!waterReportNumber.trim() || loading || !dateRangeValid || !shouldShowWaterBodies}>
               {'Descargar Reporte de estado de cuerpos hídricos'}
+            </button>
+          )}
+          {tipo === 'lluvias' && reportOutputType === 'water-bodies' && thematicReportType === 'water-bodies' && (
+            <button
+              type="button"
+              className="whatsapp-message-button"
+              disabled={!shouldShowWaterBodies || !waterReportAuthor.trim()}
+              onClick={() => {
+                setWhatsAppCopyStatus('')
+                setShowWhatsAppModal(true)
+              }}
+            >
+              Generar mensaje para WhatsApp
             </button>
           )}
         
@@ -1871,40 +1999,10 @@ function App() {
                 )}
 
                 {shouldShowWaterBodies && (
-                  <div className="water-bodies-section">
-                    <h3>ESTADO DE CUERPOS DE AGUA.</h3>
-                    <p>
-                      Al cierre de este informe, las Unidades de Monitoreo de la SNGR han identificado: <strong>{formatInt(cuerposHidricosTendenciaItems.length)} cuerpos hídricos con tendencia a subir de nivel</strong> y <strong>{formatInt(cuerposHidricosDesbordadosItems.length)} cuerpos hídricos desbordados.</strong>
-                    </p>
-
-                    {cuerposHidricosTendenciaRows.length > 0 && (
-                      <div className="water-table-block rising">
-                        <div className="water-table-title">{formatInt(cuerposHidricosTendenciaRows.length)} CUERPOS HÍDRICOS CON TENDENCIA A SUBIR DE NIVEL</div>
-                        <div className="table-wrap">
-                          <table>
-                            <thead><tr>{WATER_BODY_COLS.map(([, label]) => <th key={`tendencia-${label}`}>{label}</th>)}</tr></thead>
-                            <tbody>{cuerposHidricosTendenciaRows.map((row, rowIndex) => (
-                              <tr key={`tendencia-${rowIndex}`}>{WATER_BODY_COLS.map(([key]) => <td key={`tendencia-${rowIndex}-${key}`}>{formatTableCellValue(key, row[key]) ?? ''}</td>)}</tr>
-                            ))}</tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-
-                    {cuerposHidricosDesbordadosRows.length > 0 && (
-                      <div className="water-table-block overflowed">
-                        <div className="water-table-title">{formatInt(cuerposHidricosDesbordadosRows.length)} CUERPOS HÍDRICOS DESBORDADOS</div>
-                        <div className="table-wrap">
-                          <table>
-                            <thead><tr>{WATER_BODY_COLS.map(([, label]) => <th key={`desbordado-${label}`}>{label}</th>)}</tr></thead>
-                            <tbody>{cuerposHidricosDesbordadosRows.map((row, rowIndex) => (
-                              <tr key={`desbordado-${rowIndex}`}>{WATER_BODY_COLS.map(([key]) => <td key={`desbordado-${rowIndex}-${key}`}>{formatTableCellValue(key, row[key]) ?? ''}</td>)}</tr>
-                            ))}</tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <WaterBodiesContent
+                    overflowedRows={cuerposHidricosDesbordadosRows}
+                    risingRows={cuerposHidricosTendenciaRows}
+                  />
                 )}
               </>
             )}
@@ -2452,6 +2550,30 @@ function App() {
               </div>
             )}
           </section>
+        )}
+
+        {showWhatsAppModal && (
+          <div className="whatsapp-modal-backdrop" role="presentation" onMouseDown={() => setShowWhatsAppModal(false)}>
+            <section
+              className="whatsapp-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="whatsapp-modal-title"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="whatsapp-modal-header">
+                <h2 id="whatsapp-modal-title">Mensaje para WhatsApp</h2>
+                <button type="button" className="whatsapp-modal-close" aria-label="Cerrar" onClick={() => setShowWhatsAppModal(false)}>×</button>
+              </div>
+              <p>El mensaje está generado con los datos de las tablas de cuerpos hídricos.</p>
+              <textarea className="whatsapp-message-text" readOnly value={whatsAppWaterMessage} aria-label="Mensaje de cuerpos hídricos para WhatsApp" />
+              <div className="whatsapp-modal-actions">
+                <button type="button" onClick={onCopyWhatsAppMessage}>Copiar mensaje</button>
+                <button type="button" className="secondary" onClick={() => setShowWhatsAppModal(false)}>Cerrar</button>
+              </div>
+              {whatsAppCopyStatus && <p className="whatsapp-copy-status" aria-live="polite">{whatsAppCopyStatus}</p>}
+            </section>
+          </div>
         )}
 
         {showRawJson && responseData && (
