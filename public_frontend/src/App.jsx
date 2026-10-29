@@ -3,6 +3,7 @@ import './App.css'
 import { exportEventosLluviasPdf } from './utils/pdfReport'
 import { exportEventosLluviasWord } from './utils/wordReport.js'
 import { exportInfographicPdf } from './utils/infographicPdf.js'
+import { exportInfographicWord } from './utils/infographicWord.js'
 import { exportWaterBodiesPdf } from './utils/waterBodiesPdf.js'
 import { processHydrometeorologyPdf } from './utils/hydrometeorologyPdf.js'
 import { buildMunicipalCoeSummary, coeActivationClass, uniqueActiveCoeRows } from './utils/coeConfig.js'
@@ -1629,7 +1630,7 @@ function App() {
     }
   }
 
-  const onDescargarInfografia = async () => {
+  const onDescargarInfografia = async (format = 'pdf') => {
     if (tipo !== 'lluvias') {
       setError('La infografía está disponible para la consulta de eventos por lluvias.')
       return
@@ -1647,7 +1648,7 @@ function App() {
     setError('')
     try {
       validateDateRange()
-      await exportInfographicPdf({
+      const reportOptions = {
         items,
         tipoLluviasItems,
         asistenciaItems,
@@ -1665,7 +1666,9 @@ function App() {
         startDate: desde,
         endDate: hasta,
         hydrometeorology,
-      })
+      }
+      if (format === 'word') await exportInfographicWord(reportOptions)
+      else await exportInfographicPdf(reportOptions)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -1910,19 +1913,24 @@ function App() {
 
           <button type="submit" disabled={loading || !API_BASE_URL || !dateRangeValid}>{loading ? 'Consultando...' : 'Consultar'}</button>
           {reportOutputType === 'sitrep' && (
-            <button type="button" onClick={() => onDescargarPrincipal('pdf')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
-              {'Descargar PDF'}
-            </button>
-          )}
-          {reportOutputType === 'sitrep' && (
-            <button type="button" onClick={() => onDescargarPrincipal('word')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
-              {'Descargar Word editable'}
-            </button>
+            <div className="sitrep-download-row">
+              <button type="button" onClick={() => onDescargarPrincipal('pdf')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
+                {'Descargar SITREP PDF'}
+              </button>
+              <button type="button" onClick={() => onDescargarPrincipal('word')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
+                {'Descargar SITREP Word editable'}
+              </button>
+            </div>
           )}
           {tipo === 'lluvias' && reportOutputType === 'sitrep' && (
-            <button type="button" className="infographic-button" onClick={onDescargarInfografia} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
-              {'Descargar Infografía PDF'}
-            </button>
+            <div className="infographic-download-row">
+              <button type="button" className="infographic-button" onClick={() => onDescargarInfografia('pdf')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
+                {'Descargar Infografía PDF'}
+              </button>
+              <button type="button" className="infographic-button" onClick={() => onDescargarInfografia('word')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
+                {'Descargar Infografía Word'}
+              </button>
+            </div>
           )}
           {tipo === 'lluvias' && reportOutputType === 'water-bodies' && (
             <button type="button" className="water-report-button" onClick={onDescargarCuerposHidricos} disabled={!waterReportNumber.trim() || loading || !dateRangeValid || !shouldShowWaterBodies}>

@@ -137,6 +137,19 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.sitrep-download-row,
+.infographic-download-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sitrep-download-row button,
+.infographic-download-row button {
+  grid-column: auto;
+}
+
 button.infographic-button {
   background: #1f3c69;
 }

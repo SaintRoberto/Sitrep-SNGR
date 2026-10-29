@@ -58,12 +58,12 @@ export function provinceImpactValue(summary, provinceName) {
 export function impactLevel(value, maximum, hasData = true) {
   if (!hasData) return 'none'
   const numericValue = Number(value || 0)
-  if (maximum > 0 && numericValue === maximum) return 'maximum'
-  const percentageOfMaximum = maximum > 0 ? (numericValue / maximum) * 100 : 0
-  if (percentageOfMaximum < 0.3) return 'low'
-  if (percentageOfMaximum <= 1) return 'yellowGreen'
-  if (percentageOfMaximum <= 30) return 'medium'
-  return 'high'
+  if (!Number.isFinite(numericValue) || numericValue < 1) return 'none'
+  if (numericValue <= 160) return 'low'
+  if (numericValue <= 1600) return 'yellowGreen'
+  if (numericValue <= 8000) return 'medium'
+  if (numericValue <= 80000) return 'high'
+  return 'maximum'
 }
 
 export function impactColor(value, maximum, hasData = true) {
@@ -91,12 +91,12 @@ export function shortProvinceLabel(name) {
 
 export function impactLegend() {
   return [
-    { level: 'none', label: 'Sin datos', color: IMPACT_COLORS.none },
-    { level: 'low', label: 'Menor a 0,3% del máximo', color: IMPACT_COLORS.low },
-    { level: 'yellowGreen', label: 'Desde 0,3% hasta 1%', color: IMPACT_COLORS.yellowGreen },
-    { level: 'medium', label: 'Mayor a 1% hasta 30%', color: IMPACT_COLORS.medium },
-    { level: 'high', label: 'Mayor a 30% hasta antes del máximo', color: IMPACT_COLORS.high },
-    { level: 'maximum', label: 'Valor máximo', color: IMPACT_COLORS.maximum },
+    { level: 'none', label: 'Nivel0', color: IMPACT_COLORS.none },
+    { level: 'low', label: 'Nivel1 (1-160)', color: IMPACT_COLORS.low },
+    { level: 'yellowGreen', label: 'Nivel2 (161-1600)', color: IMPACT_COLORS.yellowGreen },
+    { level: 'medium', label: 'Nivel3 (1601-8000)', color: IMPACT_COLORS.medium },
+    { level: 'high', label: 'Nivel4 (8001-80000)', color: IMPACT_COLORS.high },
+    { level: 'maximum', label: 'Nivel5 (80001 o mas)', color: IMPACT_COLORS.maximum },
   ]
 }
 

@@ -1584,7 +1584,7 @@ function renderProvinceImpactMap(doc, currentY, items, analystName, analystEmail
     doc.setFillColor(...entry.color.rgb)
     doc.setDrawColor(213, 221, 232)
     doc.rect(legendX + 2.5, entryY, 5.5, 3.5, 'FD')
-    font(doc, 'normal', 3.2, C.navy)
+    font(doc, 'normal', 5.0, C.navy)
     doc.text(entry.label, legendX + 10, entryY + 2.5)
   })
 
