@@ -51,6 +51,12 @@ h1 {
   gap: 12px;
 }
 
+.report24-settings-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .water-report-heading-fields,
 .water-report-fields {
   grid-column: 1 / -1;

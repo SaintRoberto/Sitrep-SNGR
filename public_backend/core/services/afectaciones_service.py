@@ -253,9 +253,10 @@ def get_coes_por_lluvias(desde, hasta, nivel):
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
 
 
-def get_eventos_alto_impacto_por_lluvias(desde, hasta, cantidad=5):
+def get_eventos_alto_impacto_por_lluvias(desde, hasta, cantidad=None):
     query = "CALL dmeva.`spSitRepNac-Lluvias-Detalle`(%s, %s, %s)"
-    params = [desde, hasta, cantidad]
+    query_limit = cantidad if cantidad is not None else 2147483647
+    params = [desde, hasta, query_limit]
 
     try:
         return _run_query(query, params)

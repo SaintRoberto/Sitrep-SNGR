@@ -294,12 +294,24 @@ function renderHeader(doc, { assets, metadata, publishedAt, pageNumber, pageCoun
   font(doc, 'normal', 4.8, [155, 155, 155])
   doc.text(`Fecha y Hora de publicación: ${publication} - ${time} / Página ${pageNumber} de ${pageCount}`, 193, 22.5, { align: 'right' })
   if (pageNumber === 1) {
-    font(doc, 'normal', 14.5, C.orange)
-    doc.text(metadata.title, 193, 30.2, { align: 'right' })
+    if (metadata.report24h) {
+      const titleWidth = 132
+      let titleSize = 12.5
+      let titleLines = []
+      do {
+        font(doc, 'normal', titleSize, C.orange)
+        titleLines = doc.splitTextToSize(metadata.title, titleWidth)
+        titleSize -= 0.5
+      } while (titleLines.length > 2 && titleSize >= 9.5)
+      doc.text(titleLines, 193, 28.1, { align: 'right', lineHeightFactor: 1.08 })
+    } else {
+      font(doc, 'normal', 14.5, C.orange)
+      doc.text(metadata.title, 193, 30.2, { align: 'right' })
+    }
     font(doc, 'normal', 7.5, C.black)
-    doc.text('INFORME DE SITUACIÓN NACIONAL', 193, 35.1, { align: 'right' })
+    doc.text('INFORME DE SITUACIÓN NACIONAL', 193, metadata.report24h ? 36.7 : 35.1, { align: 'right' })
     font(doc, 'normal', 5.5, C.black)
-    doc.text(metadata.coverage, 193, 38.4, { align: 'right' })
+    doc.text(metadata.coverage, 193, metadata.report24h ? 40 : 38.4, { align: 'right' })
   }
 }
 
@@ -437,9 +449,21 @@ function renderRequiredImportantPoint(doc, currentY, segments, width) {
 }
 
 function renderImportantPoints(doc, currentY, context) {
-  const bullets = importantPoints(context)
+  const exactLines = Array.isArray(context.importantPointLines)
+    ? context.importantPointLines.map((line) => String(line || '').trim()).filter(Boolean)
+    : []
+  const bullets = exactLines.length
+    ? exactLines.map((line) => [{ text: line }])
+    : importantPoints(context)
   currentY = ensurePageSpace(doc, currentY, 58)
   currentY = renderSectionTitle(doc, currentY, '1', 'Puntos importantes')
+
+  if (exactLines.length) {
+    bullets.forEach((segments) => {
+      currentY = renderRequiredImportantPoint(doc, currentY, segments, PAGE.contentWidth - 9)
+    })
+    return currentY + 2
+  }
 
   const hasAffectationLevel = context.affectationLevel !== undefined
     && context.affectationLevel !== null && context.affectationLevel !== ''
@@ -762,12 +786,12 @@ function renderAffectationsSummary(doc, currentY, items, viasItems, assets, meta
   return sourceLine(doc, currentY, metadata) + 2
 }
 
-function renderProvinceDetail(doc, currentY, items, metadata) {
+function renderProvinceDetail(doc, currentY, items, metadata, sectionNumber = '4') {
   const columns = DETAIL_COLUMNS.filter((column) => ['__no__', 'Provincia'].includes(column.key)
     || (has(items, column.key) && sum(items, column.key) !== 0))
   if (!items.length || columns.length < 2) return currentY
   currentY = ensurePageSpace(doc, currentY, 70)
-  currentY = renderSectionTitle(doc, currentY, '4', 'Detalle de afectaciones por provincias')
+  currentY = renderSectionTitle(doc, currentY, sectionNumber, 'Detalle de afectaciones por provincias')
   const top = ranking(items, 4)
   if (top.length) {
     const [first, ...rest] = top
@@ -1432,9 +1456,13 @@ function renderPagedText(doc, currentY, text, options = {}) {
   return currentY + after
 }
 
-function renderHighImpactEvents(doc, currentY, items, metadata) {
-  if (!items.length) return currentY
+function renderHighImpactEvents(doc, currentY, items, metadata, alwaysShow = false) {
+  if (!items.length && !alwaysShow) return currentY
   currentY = renderSectionTitle(doc, currentY + 4, '8', 'Eventos adversos de alto impacto')
+  if (!items.length) {
+    currentY = renderPagedText(doc, currentY, 'No se registraron eventos adversos de alto impacto para el período consultado.', { fontSize: 8.7, after: 2.5 })
+    return sourceLine(doc, currentY, metadata)
+  }
   currentY = renderPagedText(doc, currentY, 'A continuación, se detallan los eventos adversos relevantes de los últimos días:', { fontSize: 8.7, after: 2.5 })
 
   let activeZone = null
@@ -1510,12 +1538,12 @@ function drawProvinceGeometry(doc, province, mapX, mapY, mapWidth, mapHeight, fi
   })
 }
 
-function renderSitrepSignoffs(doc, currentY, analystName, analystEmail) {
+function renderSitrepSignoffs(doc, currentY, analystName, analystEmail, reportName = 'SitRep') {
   const gap = 16
   const boxWidth = (PAGE.contentWidth - gap) / 2
   const boxes = [
     {
-      title: 'SitRep elaborado por:',
+      title: `${reportName} elaborado por:`,
       lines: [
         `Nombre: ${String(analystName || '').trim() || 'Pendiente de ingresar'}`,
         `Correo electrónico: ${String(analystEmail || '').trim() || 'Pendiente de ingresar'}`,
@@ -1523,7 +1551,7 @@ function renderSitrepSignoffs(doc, currentY, analystName, analystEmail) {
       ],
     },
     {
-      title: 'SitRep aprobado por:',
+      title: `${reportName} aprobado por:`,
       lines: [
         'Nombre: Stalin Jiménez - Director de Monitoreo de Eventos Adversos',
         'Correo electrónico: director.monitoreo@gestionderiesgos.gob.ec',
@@ -1603,26 +1631,35 @@ export async function buildEventosLluviasPdf({
   highImpactEvents = [],
   analystName = '',
   analystEmail = '',
+  report24h = false,
+  importantPointLines = null,
   publishedAt = new Date(), startDate = null, endDate = null, assetBaseUrl = null,
 } = {}) {
   const assets = await loadPdfAssets(assetBaseUrl)
   const doc = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
   registerFonts(doc, assets)
-  const metadata = periodMetadata(publishedAt, sitrepNumber, startDate, endDate)
+  const baseMetadata = periodMetadata(publishedAt, sitrepNumber, startDate, endDate)
+  const metadata = report24h
+    ? { ...baseMetadata, report24h: true, title: `Reporte de lluvias con incidencia del Evento El Niño, del ${baseMetadata.startLong} al ${baseMetadata.endLong}` }
+    : baseMetadata
   let currentY = PAGE.firstTop
-  currentY = renderImportantPoints(doc, currentY, { items, tipoLluviasItems, asistenciaItems, dpaTotals, metadata, affectationLevel })
-  currentY = renderHydrometeorology(doc, currentY, hydrometeorology)
-  currentY = renderWaterBodies(doc, currentY, waterBodiesOverflowed, waterBodiesRising, metadata)
+  currentY = renderImportantPoints(doc, currentY, { items, tipoLluviasItems, asistenciaItems, dpaTotals, metadata, affectationLevel, importantPointLines })
+  if (!report24h) currentY = renderHydrometeorology(doc, currentY, hydrometeorology)
+  if (!report24h) currentY = renderWaterBodies(doc, currentY, waterBodiesOverflowed, waterBodiesRising, metadata)
   currentY = renderEventsTable(doc, currentY, tipoLluviasItems, metadata)
-  currentY = renderAffectationsSummary(doc, currentY, items, viasCategoriaItems, assets, metadata)
-  currentY = renderProvinceDetail(doc, currentY, items, metadata)
-  currentY = renderProvinceImpactChart(doc, currentY, items, metadata)
-  currentY = renderMonthlySummary(doc, currentY, eventosMesItems, metadata)
-  currentY = renderTemporaryShelters(doc, currentY, alojamientosItems, alojamientosCerradosItems, metadata)
-  currentY = renderAssistance(doc, currentY, asistenciaItems, asistenciaSNDGIRDItems, metadata)
-  currentY = renderDeclarations(doc, currentY, alertDeclarations, emergencyDeclarations, nationalCoeItems, provincialCoeItems, municipalCoeItems, parishCoeItems, metadata)
-  currentY = renderHighImpactEvents(doc, currentY, highImpactEvents, metadata)
-  renderProvinceImpactMap(doc, currentY, items, analystName, analystEmail)
+  if (!report24h) currentY = renderAffectationsSummary(doc, currentY, items, viasCategoriaItems, assets, metadata)
+  currentY = renderProvinceDetail(doc, currentY, items, metadata, report24h ? '4.2' : '4')
+  if (!report24h) currentY = renderProvinceImpactChart(doc, currentY, items, metadata)
+  if (!report24h) currentY = renderMonthlySummary(doc, currentY, eventosMesItems, metadata)
+  if (!report24h) currentY = renderTemporaryShelters(doc, currentY, alojamientosItems, alojamientosCerradosItems, metadata)
+  if (!report24h) currentY = renderAssistance(doc, currentY, asistenciaItems, asistenciaSNDGIRDItems, metadata)
+  if (!report24h) currentY = renderDeclarations(doc, currentY, alertDeclarations, emergencyDeclarations, nationalCoeItems, provincialCoeItems, municipalCoeItems, parishCoeItems, metadata)
+  currentY = renderHighImpactEvents(doc, currentY, highImpactEvents, metadata, report24h)
+  if (report24h) {
+    currentY = ensurePageSpace(doc, currentY + 5, 30)
+    renderSitrepSignoffs(doc, currentY, analystName, analystEmail, 'Reporte 24 horas')
+  }
+  else renderProvinceImpactMap(doc, currentY, items, analystName, analystEmail)
   decoratePages(doc, { assets, metadata, publishedAt })
   return doc
 }
@@ -1630,5 +1667,5 @@ export async function buildEventosLluviasPdf({
 export async function exportEventosLluviasPdf(options) {
   const doc = await buildEventosLluviasPdf(options)
   const suffix = options?.provinciaId ? `provincia_${options.provinciaId}` : 'todas'
-  doc.save(`sitrep_lluvias_preview_style_${suffix}.pdf`)
+  doc.save(options?.report24h ? 'reporte_24_horas.pdf' : `sitrep_lluvias_preview_style_${suffix}.pdf`)
 }

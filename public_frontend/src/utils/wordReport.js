@@ -940,6 +940,8 @@ export async function buildEventosLluviasWord({
   hydrometeorology = null, waterBodiesOverflowed = [], waterBodiesRising = [], alertDeclarations = [], emergencyDeclarations = [],
   nationalCoeItems = [], provincialCoeItems = [], municipalCoeItems = [], parishCoeItems = [], highImpactEvents = [],
   analystName = '', analystEmail = '', publishedAt = new Date(), startDate = null, endDate = null, assetBaseUrl = null,
+  report24h = false,
+  importantPointLines = null,
 } = {}) {
   const groups = indicatorGroups(items, viasCategoriaItems)
   const iconNames = [...new Set(groups.flatMap((group) => group.items.map((item) => item.icon)).filter(Boolean))]
@@ -949,7 +951,10 @@ export async function buildEventosLluviasWord({
     ...iconNames.map((icon) => imageData(assetUrl('iconos%20SITREP', icon, assetBaseUrl), 96)),
   ])
   const assets = { headerLogo, footer, icons: Object.fromEntries(iconNames.map((icon, index) => [icon, iconData[index]])) }
-  const metadata = periodMetadata(publishedAt, sitrepNumber, startDate, endDate)
+  const baseMetadata = periodMetadata(publishedAt, sitrepNumber, startDate, endDate)
+  const metadata = report24h
+    ? { ...baseMetadata, title: `Reporte de lluvias con incidencia del Evento El Niño, del ${baseMetadata.startLong} al ${baseMetadata.endLong}` }
+    : baseMetadata
   const children = []
 
   children.push(new Paragraph({ children: [textRun(metadata.title, false, { size: 30, color: COLORS.orange })], alignment: AlignmentType.RIGHT, spacing: { after: 30 } }))
@@ -957,17 +962,24 @@ export async function buildEventosLluviasWord({
   children.push(new Paragraph({ children: [textRun(metadata.coverage, false, { size: 13 })], alignment: AlignmentType.RIGHT, spacing: { after: 160 } }))
 
   children.push(sectionTitle('1', 'Puntos importantes'))
-  const hasAffectationLevel = affectationLevel !== null && affectationLevel !== undefined && String(affectationLevel) !== ''
-  if (hasAffectationLevel) {
-    children.push(importantPointsLead(affectationLevel), new Paragraph({ spacing: { after: 20 } }))
+  const exactImportantPoints = Array.isArray(importantPointLines)
+    ? importantPointLines.map((line) => String(line || '').trim()).filter(Boolean)
+    : []
+  if (report24h && exactImportantPoints.length) {
+    exactImportantPoints.forEach((line) => children.push(paragraphFromSegments([[line, false]], { bullet: true })))
   } else {
-    REQUIRED_POINTS.forEach((point) => children.push(paragraphFromSegments(point, { bullet: true })))
+    const hasAffectationLevel = affectationLevel !== null && affectationLevel !== undefined && String(affectationLevel) !== ''
+    if (hasAffectationLevel) {
+      children.push(importantPointsLead(affectationLevel), new Paragraph({ spacing: { after: 20 } }))
+    } else {
+      REQUIRED_POINTS.forEach((point) => children.push(paragraphFromSegments(point, { bullet: true })))
+    }
+    importantPoints({ items, tipoLluviasItems, asistenciaItems, dpaTotals, metadata }).forEach((point) => children.push(paragraphFromSegments(point, { bullet: true })))
   }
-  importantPoints({ items, tipoLluviasItems, asistenciaItems, dpaTotals, metadata }).forEach((point) => children.push(paragraphFromSegments(point, { bullet: true })))
 
-  children.push(...hydrometeorologyContent(hydrometeorology))
+  if (!report24h) children.push(...hydrometeorologyContent(hydrometeorology))
 
-  if (waterBodiesOverflowed.length || waterBodiesRising.length) {
+  if (!report24h && (waterBodiesOverflowed.length || waterBodiesRising.length)) {
     children.push(subsectionTitle('ESTADO DE CUERPOS DE AGUA.', COLORS.blue))
     children.push(paragraphFromSegments([
       ['Al cierre de este informe, las Unidades de Monitoreo de la SNGR han identificado: ', false],
@@ -1010,7 +1022,7 @@ export async function buildEventosLluviasWord({
     children.push(sourceLine(metadata))
   }
 
-  if (groups.length) {
+  if (!report24h && groups.length) {
     children.push(paragraphFromSegments([['Por los eventos detallados en la tabla anterior, se han registrado las siguientes afectaciones:', false]]))
     groups.forEach((group) => {
       children.push(indicatorBand(group.name))
@@ -1035,7 +1047,7 @@ export async function buildEventosLluviasWord({
     ...DETAIL_COLUMNS.filter((column) => column.key === 'Provincia' || (has(items, column.key) && sum(items, column.key) !== 0))
       .map((column) => ({ ...column, format: column.type === 'text' ? undefined : (value) => fmt(value, column.type === 'decimal') }))]
   if (items.length && detailColumns.length > 2) {
-    children.push(sectionTitle('4', 'Detalle de afectaciones por provincias'))
+    children.push(sectionTitle(report24h ? '4.2' : '4', 'Detalle de afectaciones por provincias'))
     const sorted = [...items].sort((a, b) => n(b?.ImpactadasPersonas) - n(a?.ImpactadasPersonas) || n(b?.NumeroEventos) - n(a?.NumeroEventos))
     const top = sorted.slice(0, 4)
     if (top.length) children.push(paragraphFromSegments([
@@ -1054,26 +1066,28 @@ export async function buildEventosLluviasWord({
     }))
     children.push(sourceLine(metadata, '. Nota: Personas impactadas incluye personas afectadas y damnificadas.'))
 
-    children.push(subsectionTitle('Número de eventos vs Personas Impactadas por provincia', COLORS.gray))
-    const provinceChartRows = [...items]
-      .map((row) => ({ label: String(row?.Provincia || ''), events: n(row?.NumeroEventos), people: n(row?.ImpactadasPersonas) }))
-      .filter((row) => row.label && (row.events || row.people))
-      .sort((a, b) => b.people - a.people || b.events - a.events)
-    const provinceChart = chartImage(provinceChartRows, 'Número de eventos vs Personas Impactadas por provincia', 'events', 'people', 'Nro. de eventos', 'Personas Impactadas')
-    if (provinceChart) children.push(new Paragraph({
-      children: [new ImageRun({ type: 'png', data: provinceChart, transformation: { width: 650, height: 325 } })],
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 80 },
-    }))
-    addTable(children, dataTable([
-      { key: 'Provincia', label: 'Provincia', type: 'text' },
-      { key: 'NumeroEventos', label: 'Nro. de eventos', type: 'number', format: fmt },
-      { key: 'ImpactadasPersonas', label: 'Personas impactadas', type: 'number', format: fmt },
-    ], [...items].sort((a, b) => n(b?.ImpactadasPersonas) - n(a?.ImpactadasPersonas)), { widths: [4875, 2437, 2438] }))
-    children.push(sourceLine(metadata))
+    if (!report24h) {
+      children.push(subsectionTitle('Número de eventos vs Personas Impactadas por provincia', COLORS.gray))
+      const provinceChartRows = [...items]
+        .map((row) => ({ label: String(row?.Provincia || ''), events: n(row?.NumeroEventos), people: n(row?.ImpactadasPersonas) }))
+        .filter((row) => row.label && (row.events || row.people))
+        .sort((a, b) => b.people - a.people || b.events - a.events)
+      const provinceChart = chartImage(provinceChartRows, 'Número de eventos vs Personas Impactadas por provincia', 'events', 'people', 'Nro. de eventos', 'Personas Impactadas')
+      if (provinceChart) children.push(new Paragraph({
+        children: [new ImageRun({ type: 'png', data: provinceChart, transformation: { width: 650, height: 325 } })],
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 80 },
+      }))
+      addTable(children, dataTable([
+        { key: 'Provincia', label: 'Provincia', type: 'text' },
+        { key: 'NumeroEventos', label: 'Nro. de eventos', type: 'number', format: fmt },
+        { key: 'ImpactadasPersonas', label: 'Personas impactadas', type: 'number', format: fmt },
+      ], [...items].sort((a, b) => n(b?.ImpactadasPersonas) - n(a?.ImpactadasPersonas)), { widths: [4875, 2437, 2438] }))
+      children.push(sourceLine(metadata))
+    }
   }
 
-  if (eventosMesItems.length) {
+  if (!report24h && eventosMesItems.length) {
     const monthRows = eventosMesItems.map((row) => ({ month: row?.mes, events: n(row?.eventos), people: n(row?.personas_impactadas) }))
     const totalEvents = monthRows.reduce((acc, row) => acc + row.events, 0)
     const totalPeople = monthRows.reduce((acc, row) => acc + row.people, 0)
@@ -1102,10 +1116,12 @@ export async function buildEventosLluviasWord({
     addGenericTable(children, shelterItems, priority)
     children.push(sourceLine(metadata))
   }
-  addShelter('5.1', 'Alojamientos Temporales Abiertos', alojamientosItems, ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura'], 'activado')
-  addShelter('5.2', 'Alojamientos Temporales Cerrados', alojamientosCerradosItems, ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura', 'Cierre'], 'cerrado')
+  if (!report24h) {
+    addShelter('5.1', 'Alojamientos Temporales Abiertos', alojamientosItems, ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura'], 'activado')
+    addShelter('5.2', 'Alojamientos Temporales Cerrados', alojamientosCerradosItems, ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura', 'Cierre'], 'cerrado')
+  }
 
-  if ((asistenciaItems.length && sum(asistenciaItems, 'Total Bienes')) || (asistenciaSNDGIRDItems.length && sum(asistenciaSNDGIRDItems, 'Total Bienes'))) {
+  if (!report24h && ((asistenciaItems.length && sum(asistenciaItems, 'Total Bienes')) || (asistenciaSNDGIRDItems.length && sum(asistenciaSNDGIRDItems, 'Total Bienes')))) {
     children.push(sectionTitle('6', 'Asistencia Humanitaria'))
     if (asistenciaItems.length && sum(asistenciaItems, 'Total Bienes')) {
       children.push(paragraphFromSegments([['Por eventos producidos por lluvias desde el ', false], [metadata.startLong, true], [' hasta el ', false], [`${metadata.endLong}, `, true], ['la SNGR ha entregado a la población un total de ', false], [`${fmt(sum(asistenciaItems, 'Total Bienes'))} bienes de asistencia:`, true]]))
@@ -1125,7 +1141,7 @@ export async function buildEventosLluviasWord({
     }
   }
 
-  if (alertDeclarations.length || emergencyDeclarations.length || nationalCoeItems.length || provincialCoeItems.length || municipalCoeItems.length || parishCoeItems.length) {
+  if (!report24h && (alertDeclarations.length || emergencyDeclarations.length || nationalCoeItems.length || provincialCoeItems.length || municipalCoeItems.length || parishCoeItems.length)) {
     children.push(sectionTitle('7', 'Declaratorias emitidas y COE activados'))
     const alertColumns = [
       { key: 'Ambito', label: 'Nivel de gobierno', type: 'text' }, { key: 'Provincia', label: 'Provincia', type: 'text' },
@@ -1164,9 +1180,11 @@ export async function buildEventosLluviasWord({
     children.push(sourceLine(metadata))
   }
 
-  if (highImpactEvents.length) {
+  if (highImpactEvents.length || report24h) {
     children.push(sectionTitle('8', 'Eventos adversos de alto impacto'))
-    children.push(paragraphFromSegments([['A continuación, se detallan los eventos adversos relevantes de los últimos días:', false]]))
+    children.push(paragraphFromSegments([[highImpactEvents.length
+      ? 'A continuación, se detallan los eventos adversos relevantes de los últimos días:'
+      : 'No se registraron eventos adversos de alto impacto para el período consultado.', false]]))
     let activeZone = null
     highImpactEvents.forEach((item) => {
       const zone = String(item?.Zona ?? '').trim() || 'Sin zona'
@@ -1183,7 +1201,7 @@ export async function buildEventosLluviasWord({
     children.push(sourceLine(metadata))
   }
 
-  if (items.length && has(items, 'ImpactadasPersonas')) {
+  if (!report24h && items.length && has(items, 'ImpactadasPersonas')) {
     children.push(new Paragraph({ children: [new PageBreak()] }))
     children.push(sectionTitle('9', 'Mapa de Personas Impactadas por lluvias a Nivel Nacional'))
     const mapImage = provinceMapImage(items)
@@ -1197,7 +1215,7 @@ export async function buildEventosLluviasWord({
   return new Document({
     creator: 'Secretaría Nacional de Gestión de Riesgos',
     title: metadata.title,
-    description: 'Informe de Situación Nacional editable',
+    description: report24h ? 'Reporte de 24 horas editable' : 'Informe de Situación Nacional editable',
     styles: {
       default: { document: { run: { font: FONT, size: 18, color: COLORS.black }, paragraph: { spacing: { after: 100, line: 250 } } } },
       paragraphStyles: [
@@ -1226,7 +1244,7 @@ export async function exportEventosLluviasWord(options) {
   const url = URL.createObjectURL(blob)
   const anchor = window.document.createElement('a')
   anchor.href = url
-  anchor.download = `sitrep_lluvias_editable_${suffix}.docx`
+  anchor.download = options?.report24h ? 'reporte_24_horas_editable.docx' : `sitrep_lluvias_editable_${suffix}.docx`
   window.document.body.appendChild(anchor)
   anchor.click()
   anchor.remove()

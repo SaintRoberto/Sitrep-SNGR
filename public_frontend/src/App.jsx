@@ -851,9 +851,10 @@ function App() {
   const [tipo, setTipo] = useState('lluvias')
   const [provinciaId, setProvinciaId] = useState('')
   const [reportOutputType, setReportOutputType] = useState('sitrep')
+  const isReport24h = reportOutputType === 'report-24h'
   const [thematicReportType, setThematicReportType] = useState('water-bodies')
   const [sitrepNumber, setSitrepNumber] = useState('')
-  const [highImpactEventCount, setHighImpactEventCount] = useState('15')
+  const [highImpactEventCount, setHighImpactEventCount] = useState('')
   const [waterReportNumber, setWaterReportNumber] = useState('')
   const [waterReportAuthor, setWaterReportAuthor] = useState('')
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false)
@@ -904,11 +905,11 @@ function App() {
   const requestUrl = useMemo(() => buildApiUrl(ENDPOINTS[tipo], provinciaId), [buildApiUrl, tipo, provinciaId])
   const buildHighImpactEventsUrl = useCallback(() => {
     const url = buildApiUrl(ENDPOINTS.eventosAltoImpactoLluvias)
-    const count = highImpactEventCount.trim()
+    const count = highImpactEventCount.trim() || (isReport24h ? '' : '15')
     if (!count) return url
     const separator = url.includes('?') ? '&' : '?'
     return `${url}${separator}cantidad=${encodeURIComponent(count)}`
-  }, [buildApiUrl, highImpactEventCount])
+  }, [buildApiUrl, highImpactEventCount, isReport24h])
   const dateRangeValid = Boolean(desde && hasta && desde <= hasta)
 
   const validateDateRange = () => {
@@ -924,8 +925,8 @@ function App() {
 
   const validateHighImpactEventCount = () => {
     const count = highImpactEventCount.trim()
-    if (count && (!/^\d+$/.test(count) || Number(count) < 1 || Number(count) > 50)) {
-      throw new Error('Ingresa una cantidad de eventos de alto impacto entre 1 y 50.')
+    if (count && (!/^\d+$/.test(count) || Number(count) < 1)) {
+      throw new Error('Ingresa una cantidad de eventos de alto impacto mayor que cero.')
     }
   }
 
@@ -1498,7 +1499,7 @@ function App() {
       return
     }
 
-    if (!hydrometeorology) {
+    if (!isReport24h && !hydrometeorology) {
       setError('Selecciona y procesa el boletín PDF del INAMHI antes de generar el SITREP.')
       return
     }
@@ -1508,7 +1509,7 @@ function App() {
     try {
       if (!PUBLIC_API_KEY) throw new Error('Falta VITE_PUBLIC_API_KEY en el frontend.')
       validateDateRange()
-      validateAffectationLevel()
+      if (!isReport24h) validateAffectationLevel()
       validateHighImpactEventCount()
       validateAnalystName()
       const trimmedProvincia = provinciaId.trim()
@@ -1592,6 +1593,16 @@ function App() {
       if (!responseCopae.ok) throw new Error(dataCopae?.error || 'Error consultando COPAE parroquiales')
       if (!responseEventosAltoImpacto.ok) throw new Error(dataEventosAltoImpacto?.error || 'Error consultando eventos adversos de alto impacto')
 
+      const report24ImportantPoints = isReport24h
+        ? buildPuntosImportantes(
+          dataMain?.items || [],
+          dataTipos?.items || [],
+          'lluvias',
+          (dataDpa?.items || [])[0] || null,
+          desde,
+          hasta
+        )
+        : null
       const reportOptions = {
         items: dataMain?.items || [],
         tipoLluviasItems: dataTipos?.items || [],
@@ -1613,13 +1624,17 @@ function App() {
         analystName: analystName.trim(),
         analystEmail: analystEmail.trim(),
         dpaTotals: (dataDpa?.items || [])[0] || null,
-        provinciaId: provinciaId.trim() || null,
-        sitrepNumber: sitrepNumber.trim() || null,
-        affectationLevel: affectationLevel.trim(),
+        provinciaId: isReport24h ? null : provinciaId.trim() || null,
+        sitrepNumber: isReport24h ? null : sitrepNumber.trim() || null,
+        affectationLevel: isReport24h ? null : affectationLevel.trim(),
         personasFallecidasItems: dataPersonasFallecidas?.items || [],
         startDate: desde,
         endDate: hasta,
-        hydrometeorology,
+        hydrometeorology: isReport24h ? null : hydrometeorology,
+        report24h: isReport24h,
+        importantPointLines: report24ImportantPoints
+          ? [report24ImportantPoints.line1, report24ImportantPoints.line2]
+          : null,
       }
       if (format === 'word') await exportEventosLluviasWord(reportOptions)
       else await exportEventosLluviasPdf(reportOptions)
@@ -1751,6 +1766,20 @@ function App() {
                 />
                 <span>Cuerpos hídricos</span>
               </label>
+              <label className={isReport24h ? 'report-type-option selected' : 'report-type-option'}>
+                <input
+                  type="radio"
+                  name="report-output-type"
+                  value="report-24h"
+                  checked={isReport24h}
+                  onChange={(event) => {
+                    setReportOutputType(event.target.value)
+                    setTipo('lluvias')
+                    setProvinciaId('')
+                  }}
+                />
+                <span>Reporte 24hr</span>
+              </label>
             </fieldset>
           )}
 
@@ -1804,22 +1833,26 @@ function App() {
             </>
           ) : (
             <>
-              <label>
-                Tipo de evento
-                <select value={tipo} onChange={(event) => {
-                  const nextType = event.target.value
-                  setTipo(nextType)
-                  if (nextType !== 'lluvias') setReportOutputType('sitrep')
-                }}>
-                  <option value="lluvias">Eventos por lluvias</option>
-                  <option value="noLluvias">Eventos no por lluvias</option>
-                  <option value="incendios">Eventos por incendios forestales</option>
-                </select>
-              </label>
-              <label>
-                ProvinciaID (opcional)
-                <input type="number" min="1" placeholder="Ej: 1" value={provinciaId} onChange={(e) => setProvinciaId(e.target.value)} />
-              </label>
+              {!isReport24h && (
+                <>
+                  <label>
+                    Tipo de evento
+                    <select value={tipo} onChange={(event) => {
+                      const nextType = event.target.value
+                      setTipo(nextType)
+                      if (nextType !== 'lluvias') setReportOutputType('sitrep')
+                    }}>
+                      <option value="lluvias">Eventos por lluvias</option>
+                      <option value="noLluvias">Eventos no por lluvias</option>
+                      <option value="incendios">Eventos por incendios forestales</option>
+                    </select>
+                  </label>
+                  <label>
+                    ProvinciaID (opcional)
+                    <input type="number" min="1" placeholder="Ej: 1" value={provinciaId} onChange={(e) => setProvinciaId(e.target.value)} disabled={true} />
+                  </label>
+                </>
+              )}
               <label>
                 Desde
                 <input type="datetime-local" step="60" required max={hasta || maxSelectableDateTime} value={desde} onChange={(e) => setDesde(e.target.value)} />
@@ -1831,7 +1864,7 @@ function App() {
             </>
           )}
 
-          {reportOutputType === 'sitrep' && (
+          {(reportOutputType === 'sitrep' || isReport24h) && (
             <>
               <label>
                 Nombre y cargo del analista
@@ -1874,8 +1907,8 @@ function App() {
                 <input
                   type="number"
                   min="1"
-                  max="50"
                   step="1"
+                  placeholder="15 por defecto"
                   value={highImpactEventCount}
                   onChange={(e) => setHighImpactEventCount(e.target.value)}
                 />
@@ -1897,6 +1930,22 @@ function App() {
             </div>
           )}
 
+          {isReport24h && (
+            <div className="report24-settings-row">
+              <label>
+                Cantidad de eventos de alto impacto
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="Todos"
+                  value={highImpactEventCount}
+                  onChange={(e) => setHighImpactEventCount(e.target.value)}
+                />
+              </label>
+            </div>
+          )}
+
           {tipo === 'lluvias' && reportOutputType === 'sitrep' && (
             <label className="hydrometeorology-upload">
               Boletín hidrometeorológico del INAMHI
@@ -1912,13 +1961,13 @@ function App() {
           )}
 
           <button type="submit" disabled={loading || !API_BASE_URL || !dateRangeValid}>{loading ? 'Consultando...' : 'Consultar'}</button>
-          {reportOutputType === 'sitrep' && (
+          {(reportOutputType === 'sitrep' || isReport24h) && (
             <div className="sitrep-download-row">
               <button type="button" onClick={() => onDescargarPrincipal('pdf')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
-                {'Descargar SITREP PDF'}
+                {isReport24h ? 'Descargar Reporte 24hr PDF' : 'Descargar SITREP PDF'}
               </button>
               <button type="button" onClick={() => onDescargarPrincipal('word')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
-                {'Descargar SITREP Word editable'}
+                {isReport24h ? 'Descargar Reporte 24hr Word' : 'Descargar SITREP Word'}
               </button>
             </div>
           )}
@@ -1963,9 +2012,9 @@ function App() {
           />
         )}
 
-        {reportOutputType === 'sitrep' && items.length > 0 && (
+        {(reportOutputType === 'sitrep' || isReport24h) && items.length > 0 && (
           <section className="preview">
-            <h2>{sitrepNumber.trim() ? `Vista Previa SITREP No. ${sitrepNumber.trim()}` : 'Vista Previa SITREP'}</h2>
+            <h2>{isReport24h ? 'Vista Previa Reporte 24hr' : sitrepNumber.trim() ? `Vista Previa SITREP No. ${sitrepNumber.trim()}` : 'Vista Previa SITREP'}</h2>
 
             <div className="block-title">1. Puntos importantes</div>
             <ul className="important-list">
@@ -1973,7 +2022,7 @@ function App() {
               <li>{puntosImportantes.line2}</li>
             </ul>
 
-            {tipo === 'lluvias' && (
+            {tipo === 'lluvias' && !isReport24h && (
               <>
                 {hydrometeorology && (
                   <>
@@ -2072,33 +2121,37 @@ function App() {
               </>
             )}
 
-            <div className="block-title pt-4">4.1 Eventos Peligrosos y Afectaciones - Resumen</div>
-            <p className="muted">{section4.paragraph}</p>
-            <div className="summary-grid">
-              {section4.cards.map((card) => (
-                <div key={card.key}>
-                  <span className="summary-card-label">
-                    {card.icon && <img src={card.icon} alt="" aria-hidden="true" />}
-                    <span>{card.label}</span>
-                  </span>
-                  <strong>{formatCardValue(card.key, card.value)}</strong>
+            {!isReport24h && (
+              <>
+                <div className="block-title pt-4">4.1 Eventos Peligrosos y Afectaciones - Resumen</div>
+                <p className="muted">{section4.paragraph}</p>
+                <div className="summary-grid">
+                  {section4.cards.map((card) => (
+                    <div key={card.key}>
+                      <span className="summary-card-label">
+                        {card.icon && <img src={card.icon} alt="" aria-hidden="true" />}
+                        <span>{card.label}</span>
+                      </span>
+                      <strong>{formatCardValue(card.key, card.value)}</strong>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            {tipo === 'lluvias' && section41ViasCategoria.rows.length > 0 && (
-              <div className="vias-categoria-card">
-                <h3>Vias afectadas (kilometros)</h3>
-                {section41ViasCategoria.rows.map((row) => (
-                  <div key={`via-cat-${row.categoria}`} className="vias-categoria-row">
-                    <span>{row.categoria}:</span>
-                    <strong>{Number(row.kilometros).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                {tipo === 'lluvias' && section41ViasCategoria.rows.length > 0 && (
+                  <div className="vias-categoria-card">
+                    <h3>Vias afectadas (kilometros)</h3>
+                    {section41ViasCategoria.rows.map((row) => (
+                      <div key={`via-cat-${row.categoria}`} className="vias-categoria-row">
+                        <span>{row.categoria}:</span>
+                        <strong>{Number(row.kilometros).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                      </div>
+                    ))}
+                    <div className="vias-categoria-total">
+                      <span>Total Vias afectadas (kilometros):</span>
+                      <strong>{Number(section41ViasCategoria.total).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                    </div>
                   </div>
-                ))}
-                <div className="vias-categoria-total">
-                  <span>Total Vias afectadas (kilometros):</span>
-                  <strong>{Number(section41ViasCategoria.total).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-                </div>
-              </div>
+                )}
+              </>
             )}
 
             <div className="block-title pt-4">4.2 Detalle de afectaciones por Provincia ({formatDateNumeric(desde)} al {formatDateNumeric(hasta)})</div>
@@ -2108,7 +2161,7 @@ function App() {
               onClick={() => downloadExcelXml(`detalle_${tipo}.xml`, 'DetalleAfectaciones', currentDetailCols, section5RowsWithTotals)}
               disabled={!items.length}
             >
-              Descargar Excel - Seccion 4.1
+              Descargar Excel - Seccion 4.2
             </button>
             <div className="table-wrap">
               <table>
@@ -2134,7 +2187,7 @@ function App() {
               </table>
             </div>
 
-            {provinceChartRows.length > 0 && (
+            {!isReport24h && provinceChartRows.length > 0 && (
               <section className="html-chart-section">
                 <div className="block-title pt-4">Número de eventos vs Personas Impactadas por provincia</div>
                 <EventsPeopleChart
@@ -2164,8 +2217,8 @@ function App() {
               </section>
             )}
 
-            <>
-
+            {!isReport24h && (
+              <>
             <div className="block-title pt-4">4.3 Numero de Eventos vs Personas Impactadas por fecha</div>
             <p className="muted">{section43Analisis}</p>
             {monthlyChartRows.length > 0 && (
@@ -2220,10 +2273,12 @@ function App() {
                   </tbody>
                 </table>
               </div>
-            </>
+              </>
+            )}
 
 
-            <>
+            {!isReport24h && (
+              <>
               <div className="block-title pt-4">5.1 Alojamientos Temporales Abiertos</div>
               <p className="muted">{alojamientosAnalisis}</p>
               {shouldShowSection5 && (
@@ -2250,9 +2305,11 @@ function App() {
                   </div>
                 </>
               )}
-            </>
+              </>
+            )}
 
-            <>
+            {!isReport24h && (
+              <>
               <div className="block-title pt-4">5.2 Alojamientos Temporales Cerrados</div>
               {shouldShowSection5Closed && (
                 <>
@@ -2278,10 +2335,11 @@ function App() {
                   </div>
                 </>
               )}
-            </>
+              </>
+            )}
 
 
-            {tipo === 'lluvias' && shouldShowSection6 && (
+            {!isReport24h && tipo === 'lluvias' && shouldShowSection6 && (
               <>
                 <div className="block-title pt-4">6.1 Asistencia Humanitaria SNGR</div>
                 <button
@@ -2309,7 +2367,8 @@ function App() {
 
             )}
 
-            <>
+            {!isReport24h && (
+              <>
               <div className="block-title pt-4">6.2 Asistencia Humanitaria SNDGIRD</div>
               <button
                 type="button"
@@ -2332,9 +2391,10 @@ function App() {
                   </tbody>
                 </table>
               </div>
-            </>
+              </>
+            )}
 
-            {tipo === 'lluvias' && (nivelesAlertaItems.length > 0 || declaratoriasEmergenciaItems.length > 0 || shouldShowCoeSection) && (
+            {!isReport24h && tipo === 'lluvias' && (nivelesAlertaItems.length > 0 || declaratoriasEmergenciaItems.length > 0 || shouldShowCoeSection) && (
               <>
                 <div className="block-title pt-4">7. Declaratorias emitidas y COE activados</div>
 
@@ -2466,10 +2526,12 @@ function App() {
               </>
             )}
 
-            {tipo === 'lluvias' && eventosAltoImpactoItems.length > 0 && (
+            {tipo === 'lluvias' && (eventosAltoImpactoItems.length > 0 || isReport24h) && (
               <div className="high-impact-section">
                 <div className="block-title pt-4">8. Eventos adversos de alto impacto</div>
-                <p className="high-impact-intro">A continuación, se detallan los eventos adversos relevantes de los últimos días:</p>
+                <p className="high-impact-intro">{eventosAltoImpactoItems.length
+                  ? 'A continuación, se detallan los eventos adversos relevantes de los últimos días:'
+                  : 'No se registraron eventos adversos de alto impacto para el período consultado.'}</p>
                 {eventosAltoImpactoPorZona.map(([zone, zoneItems]) => (
                   <div className="high-impact-zone" key={`zona-${zone}`}>
                     <h3>Zona {zone}</h3>
@@ -2499,7 +2561,7 @@ function App() {
               </div>
             )}
 
-            {tipo === 'lluvias' && items.length > 0 && (
+            {!isReport24h && tipo === 'lluvias' && items.length > 0 && (
               <div className="impact-map-section sitrep-final-section">
                 <div className="block-title pt-4">9. Mapa de Personas Impactadas por lluvias a Nivel Nacional</div>
                 <div className="province-impact-section">

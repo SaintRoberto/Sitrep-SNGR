@@ -889,14 +889,16 @@ def eventos_alto_impacto_por_lluvias():
     if error_response is not None:
         return error_response, status_code
 
-    cantidad_raw = (request.args.get("cantidad") or "5").strip()
-    try:
-        cantidad = int(cantidad_raw)
-    except ValueError:
-        return jsonify({"error": "cantidad must be an integer"}), 400
+    cantidad_raw = (request.args.get("cantidad") or "").strip()
+    cantidad = None
+    if cantidad_raw:
+        try:
+            cantidad = int(cantidad_raw)
+        except ValueError:
+            return jsonify({"error": "cantidad must be an integer"}), 400
 
-    if cantidad < 1 or cantidad > 50:
-        return jsonify({"error": "cantidad must be between 1 and 50"}), 400
+        if cantidad < 1:
+            return jsonify({"error": "cantidad must be greater than zero"}), 400
 
     try:
         data = get_eventos_alto_impacto_por_lluvias(desde, hasta, cantidad)
