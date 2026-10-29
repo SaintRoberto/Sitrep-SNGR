@@ -158,7 +158,13 @@ function metricCell(options, assets, [key, label, decimal], width, primary = fal
 }
 function primaryMetrics(options, assets) {
   const affected = ['AfectadosPersonas', 'Personas afectadas']; const damaged = ['DamnificadosPersonas', 'Personas damnificadas']; const total = sum(options.items, 'AfectadosPersonas') + sum(options.items, 'DamnificadosPersonas')
-  const totalShape = new ShapeRun({ type: 'roundedRectangle', transformation: { width: 285, height: 34 }, fill: C.white, line: { color: C.line, width: 1 }, effects: { shadow: { color: '7D8590', transparency: 42, blur: 1, distance: 5, angle: 90 } }, adjustments: { cornerRadius: 10 }, textOptions: { verticalAlignment: 'center', margins: { top: 2, right: 5, bottom: 2, left: 5 } }, children: [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 0 }, children: [new TextRun({ text: 'TOTAL de Personas impactadas: ', bold: true, size: 13, font: 'Barlow Condensed' }), new TextRun({ text: '(afectadas + damnificadas)     ', size: 10, font: 'Barlow Condensed' }), new TextRun({ text: fmt(total), bold: true, size: 24, font: 'Barlow Condensed' })] })] })
+  const totalShape = new ShapeGroupRun({ transformation: { width: 400, height: 38 }, children: [
+    { type: 'roundedRectangle', transformation: { offset: { left: 57.5, top: 0 }, width: 285, height: 34 }, fill: C.white, line: { color: C.line, width: 1 }, effects: { shadow: { color: '7D8590', transparency: 42, blur: 1, distance: 5, angle: 90 } }, adjustments: { cornerRadius: 10 }, textOptions: { verticalAlignment: 'center', margins: { top: 2, right: 5, bottom: 2, left: 5 } }, children: [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 0 }, children: [new TextRun({ text: 'TOTAL de Personas impactadas: ', bold: true, size: 13, font: 'Barlow Condensed' }), new TextRun({ text: '(afectadas + damnificadas)     ', size: 10, font: 'Barlow Condensed' }), new TextRun({ text: fmt(total), bold: true, size: 24, font: 'Barlow Condensed' })] })] },
+    { type: 'line', transformation: { offset: { left: 20, top: 0 }, width: 0, height: 22 }, line: { color: C.red, width: 2 } },
+    { type: 'line', transformation: { offset: { left: 20, top: 22 }, width: 34, height: 0 }, line: { color: C.red, width: 2, endArrow: { type: 'triangle', width: 'small', length: 'small' } } },
+    { type: 'line', transformation: { offset: { left: 380, top: 0 }, width: 0, height: 22 }, line: { color: C.red, width: 2 } },
+    { type: 'line', transformation: { offset: { left: 346, top: 22 }, width: 34, height: 0 }, line: { color: C.red, width: 2, startArrow: { type: 'triangle', width: 'small', length: 'small' } } },
+  ] })
   return [fixedRowTable([metricCell(options, assets, affected, 3200, true), metricCell(options, assets, damaged, 3200, true)], [3200, 3200], 840), table([[cell([p([totalShape], { align: AlignmentType.CENTER, after: 0 })], { width: 6400, margin: 10 })]], [6400])]
 }
 function secondaryMetrics(options, assets) {
@@ -168,7 +174,16 @@ function secondaryMetrics(options, assets) {
 function provinceTable(options) {
   const rows = options.items.map((row) => [String(row?.Provincia || '').replace(/Santo Domingo de (los|Los) Ts[aá]chilas/i, 'Santo Domingo'), n(row?.Fallecidos), n(row?.ImpactadasPersonas), n(row?.AfectadosViviendas), n(row?.DestruidosViviendas), n(row?.AfectadosKilometros)]).filter((row) => row[0]).sort((a, b) => b[2] - a[2])
   const data = [['Provincia', 'Fallecidas', 'Impactadas', 'Viv. afect.', 'Viv. destr.', 'Km vías'], ...rows.map((row) => row.map((value, i) => i === 0 ? value : i === 5 ? fmt(value, true) : fmt(value))), ['Total', ...[1, 2, 3, 4].map((i) => fmt(rows.reduce((total, row) => total + row[i], 0))), fmt(rows.reduce((total, row) => total + row[5], 0), true)]]; const widths = [1250, 550, 800, 800, 800, 800]
-  return table(data.map((row, ri) => row.map((value, ci) => cell([p([run(value, { bold: ri === 0 || ri === data.length - 1, color: ri === data.length - 1 ? C.white : C.black, size: 11 })], { align: ci ? AlignmentType.CENTER : AlignmentType.LEFT })], { width: widths[ci], fill: ri === data.length - 1 ? C.blue : ri % 2 ? C.white : 'F1F6FC', margin: 15 }))), widths)
+  const maximumImpact = Math.max(1, ...rows.map((row) => row[2]))
+  const impactFill = (value) => {
+    const intensity = Math.max(0, Math.min(1, n(value) / maximumImpact)); const start = [255, 249, 238]; const end = [248, 181, 51]
+    return start.map((channel, index) => Math.round(channel + (end[index] - channel) * intensity).toString(16).padStart(2, '0')).join('').toUpperCase()
+  }
+  return table(data.map((row, ri) => row.map((value, ci) => {
+    const isTotal = ri === data.length - 1; const isImpactBody = ci === 2 && ri > 0 && !isTotal
+    const fill = isTotal ? C.blue : isImpactBody ? impactFill(rows[ri - 1][2]) : ri % 2 ? C.white : 'F1F6FC'
+    return cell([p([run(value, { bold: ri === 0 || isTotal, color: isTotal ? C.white : C.black, size: 11 })], { align: ci ? AlignmentType.CENTER : AlignmentType.LEFT })], { width: widths[ci], fill, margin: 15 })
+  })), widths)
 }
 function hydro(options) {
   const data = options.hydrometeorology; if (!data) return [p([run('No se adjuntó boletín hidrometeorológico.', { color: C.gray })])]
