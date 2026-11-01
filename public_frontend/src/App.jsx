@@ -4,6 +4,7 @@ import { exportEventosLluviasPdf } from './utils/pdfReport'
 import { exportEventosLluviasWord } from './utils/wordReport.js'
 import { exportInfographicPdf } from './utils/infographicPdf.js'
 import { exportInfographicWord } from './utils/infographicWord.js'
+import { exportReport24InfographicPdf } from './utils/report24InfographicPdf.js'
 import { exportWaterBodiesPdf } from './utils/waterBodiesPdf.js'
 import { processHydrometeorologyPdf } from './utils/hydrometeorologyPdf.js'
 import { buildMunicipalCoeSummary, coeActivationClass, uniqueActiveCoeRows } from './utils/coeConfig.js'
@@ -960,7 +961,13 @@ function App() {
 
   const items = useMemo(() => responseData?.items ?? [], [responseData])
   const analysisRows = tipo === 'lluvias' ? tipoLluviasItems : items
-  const currentDetailCols = useMemo(() => (tipo === 'lluvias' ? DETAIL_COLS : buildDynamicCols(items)), [tipo, items])
+  const currentDetailCols = useMemo(() => {
+    if (tipo !== 'lluvias') return buildDynamicCols(items)
+    return DETAIL_COLS.filter(([key]) => (
+      ['__no__', 'Provincia', 'NumeroEventos'].includes(key)
+      || items.reduce((total, row) => total + n(row?.[key]), 0) !== 0
+    ))
+  }, [tipo, items])
   const detailRows = useMemo(() => {
     const ordered = sortByPersonasImpactadasDesc(items)
     return ordered.map((row, idx) => ({ __no__: idx + 1, ...row }))
@@ -975,7 +982,14 @@ function App() {
     .sort((a, b) => b.people - a.people || b.events - a.events), [items])
   const provinceImpactSummary = useMemo(() => buildProvinceImpactMap(items), [items])
   const tipoLluviasRowsOrdered = useMemo(() => sortByNumeroEventosDesc(tipoLluviasItems), [tipoLluviasItems])
-  const section3Cols = useMemo(() => (tipo === 'lluvias' ? TIPO_LLUVIAS_COLS : currentDetailCols), [tipo, currentDetailCols])
+  const section3Cols = useMemo(() => {
+    if (tipo !== 'lluvias') return currentDetailCols
+    return TIPO_LLUVIAS_COLS.filter(([key]) => (
+      key === 'Provincia'
+      || key === 'NumeroEventos'
+      || tipoLluviasRowsOrdered.reduce((total, row) => total + n(row?.[key]), 0) !== 0
+    ))
+  }, [tipo, currentDetailCols, tipoLluviasRowsOrdered])
   const section3BaseRows = useMemo(() => (tipo === 'lluvias' ? tipoLluviasRowsOrdered : detailRows), [tipo, tipoLluviasRowsOrdered, detailRows])
   const section3RowsWithTotals = useMemo(() => withTotalsRow(section3Cols, section3BaseRows), [section3Cols, section3BaseRows])
   const totalEventosAdversos = useMemo(
@@ -1654,7 +1668,7 @@ function App() {
       setError('Primero consulta datos para generar la infografía.')
       return
     }
-    if (!hydrometeorology) {
+    if (!isReport24h && !hydrometeorology) {
       setError('Selecciona y procesa el boletín PDF del INAMHI antes de generar la infografía.')
       return
     }
@@ -1676,13 +1690,16 @@ function App() {
         provincialCoeItems: coeProvincialItems,
         municipalCoeItems: coeMunicipalItems,
         parishCoeItems: copaeItems,
+        highImpactEvents: eventosAltoImpactoItems,
         provinciaId: provinciaId.trim() || null,
         sitrepNumber: sitrepNumber.trim() || null,
         startDate: desde,
         endDate: hasta,
-        hydrometeorology,
+        hydrometeorology: isReport24h ? null : hydrometeorology,
+        report24h: isReport24h,
       }
-      if (format === 'word') await exportInfographicWord(reportOptions)
+      if (isReport24h) await exportReport24InfographicPdf(reportOptions)
+      else if (format === 'word') await exportInfographicWord(reportOptions)
       else await exportInfographicPdf(reportOptions)
     } catch (err) {
       setError(err.message)
@@ -1971,14 +1988,16 @@ function App() {
               </button>
             </div>
           )}
-          {tipo === 'lluvias' && reportOutputType === 'sitrep' && (
+          {tipo === 'lluvias' && (reportOutputType === 'sitrep' || isReport24h) && (
             <div className="infographic-download-row">
               <button type="button" className="infographic-button" onClick={() => onDescargarInfografia('pdf')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
-                {'Descargar Infografía PDF'}
+                {isReport24h ? 'Descargar Infografía 24hr PDF' : 'Descargar Infografía PDF'}
               </button>
-              <button type="button" className="infographic-button" onClick={() => onDescargarInfografia('word')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
-                {'Descargar Infografía Word'}
-              </button>
+              {!isReport24h && (
+                <button type="button" className="infographic-button" onClick={() => onDescargarInfografia('word')} disabled={loading || hydrometeorologyLoading || !dateRangeValid}>
+                  {'Descargar Infografía Word'}
+                </button>
+              )}
             </div>
           )}
           {tipo === 'lluvias' && reportOutputType === 'water-bodies' && (
