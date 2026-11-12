@@ -1,6 +1,7 @@
 import jsPDFPackage from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { buildMunicipalCoeSummary, uniqueActiveCoeRows } from './coeConfig.js'
+import { cleanHighImpactResponseLines, highImpactEventMetaItems } from './highImpactEvents.js'
 import {
   buildProvinceImpactMap,
   ECUADOR_PROVINCES,
@@ -32,30 +33,30 @@ const TEMPLATE_FILES = {
 const WATER_BODY_COLUMNS = [
   { key: '__no__', label: 'No.', width: 7 },
   { key: 'Provincia', label: 'Provincia', width: 25 },
-  { key: 'Canton', label: 'Canton', width: 24 },
+  { key: 'Canton', label: 'Cantón', width: 24 },
   { key: 'Parroquia', label: 'Parroquia', width: 30 },
   { key: 'Sector', label: 'Sector', width: 25 },
-  { key: 'CuerpoHidrico', label: 'Nombre de cuerpo hidrico', width: 31 },
-  { key: 'FechaNovedad', label: 'Fecha de incremento de nivel', width: 30 },
+  { key: 'CuerpoHidrico', label: 'Nombre del cuerpo hídrico', width: 31 },
+  { key: 'FechaNovedad', label: 'Fecha de incremento del nivel', width: 30, format: reportDateSpanishLong },
 ]
 
 const ALERT_DECLARATION_COLUMNS = [
-  { key: 'Ambito', label: 'Nivel de gobierno', width: 14 },
-  { key: 'Provincia', label: 'Provincia', width: 15 },
-  { key: 'Canton', label: 'Cantón', width: 15 },
-  { key: 'Parroquia', label: 'Parroquia', width: 15 },
-  { key: 'FechaInicio', label: 'Fecha declaratoria', width: 18 },
+  { key: 'Ambito', label: 'Nivel de gobierno', width: 11 },
+  { key: 'Provincia', label: 'Provincia', width: 12 },
+  { key: 'Canton', label: 'Cantón', width: 12 },
+  { key: 'Parroquia', label: 'Parroquia', width: 12 },
+  { key: 'FechaInicio', label: 'Fecha declaratoria', width: 15 },
   { key: 'NivelAlerta', label: 'Nivel de alerta', width: 10 },
-  { key: 'Observacion', label: 'Descripción', width: 85 },
+  { key: 'Observacion', label: 'Descripción', width: 100 },
 ]
 
 const EMERGENCY_DECLARATION_COLUMNS = [
-  { key: 'Ambito', label: 'Nivel de gobierno', width: 14 },
-  { key: 'Provincia', label: 'Provincia', width: 16 },
-  { key: 'Canton', label: 'Cantón', width: 17 },
-  { key: 'Parroquia', label: 'Parroquia', width: 15 },
-  { key: 'FechaInicio', label: 'Fecha declaratoria', width: 18 },
-  { key: 'Observacion', label: 'Descripción', width: 92 },
+  { key: 'Ambito', label: 'Nivel de gobierno', width: 10 },
+  { key: 'Provincia', label: 'Provincia', width: 12 },
+  { key: 'Canton', label: 'Cantón', width: 12 },
+  { key: 'Parroquia', label: 'Parroquia', width: 8 },
+  { key: 'FechaInicio', label: 'Fecha declaratoria', width: 14 },
+  { key: 'Observacion', label: 'Descripción', width: 116 },
 ]
 
 const EVENT_TYPES = [
@@ -158,6 +159,10 @@ function fmt(value, decimals = false) {
   return number.toLocaleString('es-EC', { minimumFractionDigits: useDecimals ? 2 : 0, maximumFractionDigits: useDecimals ? 2 : 0 })
 }
 
+function fmtInteger(value) {
+  return Math.round(n(value)).toLocaleString('es-EC', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+}
+
 function pct(value) {
   return `${n(value).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
 }
@@ -187,6 +192,55 @@ function unique(items, keys) {
 function localDate(value, fallback) {
   const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(String(value || ''))
   return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4] || 0), Number(match[5] || 0), Number(match[6] || 0)) : fallback
+}
+
+function isDateColumn(column) {
+  return /fecha|apertura|cierre/i.test(`${column?.key || ''} ${column?.label || ''}`)
+}
+
+function reportDate(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return ''
+  const raw = String(value).trim()
+  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(raw)
+  if (calendarDate) {
+    const date = `${calendarDate[1]}-${calendarDate[2]}-${calendarDate[3]}`
+    return calendarDate[4]
+      ? `${date} ${calendarDate[4]}:${calendarDate[5]}:${calendarDate[6] || '00'}`
+      : date
+  }
+  const parsed = value instanceof Date ? value : new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return raw
+  const date = `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, '0')}-${String(parsed.getUTCDate()).padStart(2, '0')}`
+  if (!(value instanceof Date) && !/\d{1,2}:\d{2}/.test(raw)) return date
+  return `${date} ${String(parsed.getUTCHours()).padStart(2, '0')}:${String(parsed.getUTCMinutes()).padStart(2, '0')}:${String(parsed.getUTCSeconds()).padStart(2, '0')}`
+}
+
+function reportDateOnly(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(raw)
+  if (calendarDate) return `${calendarDate[1]}-${calendarDate[2]}-${calendarDate[3]}`
+  const parsed = value instanceof Date ? value : new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return raw
+  return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, '0')}-${String(parsed.getUTCDate()).padStart(2, '0')}`
+}
+
+function reportDateSpanishLong(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(raw)
+  const parsed = calendarDate ? null : new Date(raw)
+  if (!calendarDate && Number.isNaN(parsed.getTime())) return raw
+  const year = calendarDate ? calendarDate[1] : String(parsed.getUTCFullYear())
+  const month = calendarDate ? Number(calendarDate[2]) : parsed.getUTCMonth() + 1
+  const day = calendarDate ? calendarDate[3] : String(parsed.getUTCDate()).padStart(2, '0')
+  const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+  return `${day} de ${months[month - 1]} de ${year}`
+}
+
+function tableValue(column, value) {
+  if (isDateColumn(column)) return column.format ? column.format(value) : reportDate(value)
+  return ['number', 'decimal'].includes(column.type) ? fmt(value, column.type === 'decimal') : String(value ?? '')
 }
 
 function periodMetadata(publishedAt, sitrepNumber, startDate, endDate) {
@@ -364,7 +418,7 @@ function ranking(items, limit = 8) {
     .sort((a, b) => b.impactadas - a.impactadas || b.eventos - a.eventos).slice(0, limit)
 }
 
-function importantPoints({ items, tipoLluviasItems, asistenciaItems, dpaTotals, metadata }) {
+function importantPoints({ items, tipoLluviasItems, asistenciaItems, eventosMesItems, dpaTotals, metadata }) {
   const bullets = []
   const total = sum(tipoLluviasItems, 'NumeroEventos') || sum(items, 'NumeroEventos')
   const types = EVENT_TYPES.map((type) => ({ ...type, total: sum(tipoLluviasItems, type.key) }))
@@ -374,7 +428,7 @@ function importantPoints({ items, tipoLluviasItems, asistenciaItems, dpaTotals, 
     const cantons = Number.isFinite(Number(dpaTotals?.TotalCantones)) ? Number(dpaTotals.TotalCantones) : unique(items, ['Canton', 'CantonNombre'])
     const parishes = Number.isFinite(Number(dpaTotals?.TotalParroquias)) ? Number(dpaTotals.TotalParroquias) : unique(items, ['Parroquia', 'ParroquiaNombre'])
     const segments = [
-      { text: 'Desde el 1 de enero de 2026 a las 00:00 hasta la fecha, se han registrado' },
+      { text: `Desde el ${metadata.startTitle} hasta la fecha, se han registrado` },
       { text: fmt(total), bold: true },
       { text: 'eventos adversos por lluvias' },
     ]
@@ -393,13 +447,40 @@ function importantPoints({ items, tipoLluviasItems, asistenciaItems, dpaTotals, 
   }
   const top = ranking(items)
   if (top.length) bullets.push([
-    { text: `En lo que va del año ${metadata.year}, las provincias con mayor impacto a la población son:` },
+    { text: 'Durante el período seleccionado, las provincias con mayor impacto a la población son:' },
     { text: `${top.map((row) => row.provincia).join(', ')}.`, bold: true },
   ])
-  if (has(items, 'ImpactadasPersonas')) bullets.push([
-    { text: 'En total, los eventos reportados impactaron a' },
-    { text: `${fmt(sum(items, 'ImpactadasPersonas'))} personas.`, bold: true },
-  ])
+  const monthlyRows = eventosMesItems.map((row) => ({
+    month: String(row?.mes || '').trim(),
+    events: n(row?.eventos),
+    people: n(row?.personas_impactadas),
+  })).filter((row) => row.month)
+  const monthlyEvents = monthlyRows.reduce((totalValue, row) => totalValue + row.events, 0)
+  const monthlyPeople = monthlyRows.reduce((totalValue, row) => totalValue + row.people, 0)
+  const topEventMonth = [...monthlyRows].sort((a, b) => b.events - a.events)[0]
+  const topPeopleMonth = [...monthlyRows].sort((a, b) => b.people - a.people)[0]
+  const impactedPeople = monthlyPeople || sum(items, 'ImpactadasPersonas')
+  if (impactedPeople > 0) {
+    const impactSegments = [
+      { text: 'En total, los eventos reportados impactaron a' },
+      { text: `${fmt(impactedPeople)} personas${topEventMonth?.events > 0 && monthlyEvents > 0 ? ',' : ''}`, bold: true },
+    ]
+    if (topEventMonth?.events > 0 && monthlyEvents > 0) {
+      impactSegments.push(
+        { text: `con mayor frecuencia en el mes de ${topEventMonth.month.toLowerCase()} con el` },
+        { text: pct(topEventMonth.events / monthlyEvents * 100), bold: true },
+      )
+    }
+    if (topPeopleMonth?.people > 0 && monthlyPeople > 0) {
+      impactSegments.push(
+        { text: `y en ${topPeopleMonth.month.toLowerCase()} se registró el mayor impacto a la población con` },
+        { text: `${pct(topPeopleMonth.people / monthlyPeople * 100)}.`, bold: true },
+      )
+    } else {
+      impactSegments.push({ text: '.' })
+    }
+    bullets.push(impactSegments)
+  }
   const goods = sum(asistenciaItems, 'Total Bienes')
   if (goods > 0) {
     const assistedProvinces = unique(asistenciaItems, ['Provincias', 'Provincia'])
@@ -521,39 +602,60 @@ function hydrometeorologySegments(text) {
 }
 
 function renderHydrometeorology(doc, currentY, data) {
-  if (!data?.text) return currentY
+  if (!data?.text && !data?.detailImage) return currentY
   if (data.type === 'forecast') return renderHydrometeorologyForecast(doc, currentY, data)
 
-  const visualWidth = 47
+  const visualWidth = data.detailImage ? 74 : 47
   const gap = 4
   const textWidth = PAGE.contentWidth - visualWidth - gap
   font(doc, 'normal', 7.4)
-  const lines = doc.splitTextToSize(data.text, textWidth)
+  const lines = doc.splitTextToSize(String(data.text || ''), textWidth)
   const textHeight = lines.length * 3.45
-  const mapHeight = data.mapImage ? Math.min(65, visualWidth / (data.mapAspectRatio || 0.78)) : 0
-  const tableWidth = Math.min(textWidth, 78)
-  const tableHeight = data.tableImage ? Math.min(30, tableWidth / (data.tableAspectRatio || 2)) : 0
-  const rightHeight = textHeight + tableHeight + (tableHeight ? 3 : 0)
-  currentY = ensurePageSpace(doc, currentY, Math.max(mapHeight, rightHeight) + 13)
+  const mapHeight = data.mapImage ? Math.min(data.detailImage ? 60 : 65, visualWidth / (data.mapAspectRatio || 0.78)) : 0
+  const mapWidth = data.mapImage ? Math.min(visualWidth, mapHeight * (data.mapAspectRatio || 0.78)) : 0
+  const detailWidth = data.detailImage ? textWidth : 0
+  const detailHeight = data.detailImage ? Math.min(112, detailWidth / (data.detailAspectRatio || 1.25)) : 0
+  const tableWidth = Math.min(data.detailImage ? 50 : textWidth, 78)
+  const tableHeight = data.tableImage ? Math.min(data.detailImage ? 25 : 30, tableWidth / (data.tableAspectRatio || 2)) : 0
+  const narrativeHeight = data.detailImage ? detailHeight : textHeight
+  const leftHeight = mapHeight + (data.detailImage && tableHeight ? tableHeight + 2 : 0)
+  const rightHeight = narrativeHeight + (!data.detailImage && tableHeight ? tableHeight + 3 : 0)
+  currentY = ensurePageSpace(doc, currentY, Math.max(leftHeight, rightHeight) + 13)
   currentY = renderSectionTitle(doc, currentY + 2, '2', 'Situación Hidrometeorológica actual')
   const startY = currentY
   const textX = PAGE.left + visualWidth + gap
-  if (data.mapImage) doc.addImage(data.mapImage, 'PNG', PAGE.left, startY, visualWidth, mapHeight)
-  const textBottom = renderRichParagraph(doc, startY, hydrometeorologySegments(data.text), {
-    left: textX,
-    width: textWidth,
-    fontSize: 7.4,
-    lineHeight: 3.45,
-    estimatedHeight: textHeight,
-  })
+  if (data.mapImage) {
+    const mapX = PAGE.left + (visualWidth - mapWidth) / 2
+    doc.addImage(data.mapImage, 'PNG', mapX, startY, mapWidth, mapHeight)
+  }
+  let leftBottom = startY + mapHeight
+  if (data.detailImage && data.tableImage) {
+    const tableX = PAGE.left + (visualWidth - tableWidth) / 2
+    const tableY = leftBottom + 2
+    doc.addImage(data.tableImage, 'PNG', tableX, tableY, tableWidth, tableHeight)
+    leftBottom = tableY + tableHeight
+  }
+  let textBottom
+  if (data.detailImage) {
+    doc.addImage(data.detailImage, 'PNG', textX, startY, detailWidth, detailHeight)
+    textBottom = startY + detailHeight
+  } else {
+    textBottom = renderRichParagraph(doc, startY, hydrometeorologySegments(data.text), {
+      left: textX,
+      width: textWidth,
+      fontSize: 7.4,
+      lineHeight: 3.45,
+      estimatedHeight: textHeight,
+    })
+  }
   let rightBottom = textBottom
-  if (data.tableImage) {
+  if (data.tableImage && !data.detailImage) {
     const tableX = textX + (textWidth - tableWidth) / 2
     const tableY = textBottom + 1
     doc.addImage(data.tableImage, 'PNG', tableX, tableY, tableWidth, tableHeight)
     rightBottom = tableY + tableHeight
   }
-  return Math.max(startY + mapHeight, rightBottom) + 3
+  return Math.max(leftBottom, rightBottom) + 3
 }
 
 function renderHydrometeorologyForecast(doc, currentY, data) {
@@ -595,7 +697,7 @@ function renderWaterBodyTable(doc, currentY, rows, title, titleColor) {
   currentY += 5.2
 
   const columns = WATER_BODY_COLUMNS
-  const body = rows.map((row, index) => columns.map((column) => column.key === '__no__' ? index + 1 : String(row?.[column.key] ?? '')))
+  const body = rows.map((row, index) => columns.map((column) => column.key === '__no__' ? index + 1 : tableValue(column, row?.[column.key])))
   const columnStyles = Object.fromEntries(columns.map((column, index) => [index, {
     cellWidth: column.width,
     ...(column.key === 'Provincia' ? { halign: 'left' } : {}),
@@ -615,15 +717,16 @@ function renderWaterBodyTable(doc, currentY, rows, title, titleColor) {
     showHead: 'everyPage',
     rowPageBreak: 'avoid',
     didParseCell: ({ cell, column, section }) => {
+      alignHorizontalEntityHeader(cell, columns[column.index], section)
       if (section === 'body' && isBoldEntityColumn(columns[column.index])) cell.styles.fontStyle = 'bold'
     },
   })
-  return doc.lastAutoTable.finalY + 3
+  return doc.lastAutoTable.finalY
 }
 
 function renderWaterBodies(doc, currentY, overflowedRows, risingRows, metadata) {
   if (!overflowedRows.length && !risingRows.length) return currentY
-  currentY = ensurePageSpace(doc, currentY, 18)
+  currentY = ensurePageSpace(doc, currentY + 8, 18)
   font(doc, 'normal', 10.5, C.blue)
   doc.text('ESTADO DE CUERPOS DE AGUA.', PAGE.left, currentY)
   currentY += 5
@@ -665,6 +768,19 @@ function verticalHeader(doc, text, cell, size = 5.5) {
   doc.text(String(text), cell.x + cell.width / 2 + 0.7, cell.y + cell.height - 2, { angle: 90, align: 'left' })
 }
 
+function isHorizontalEntityHeader(column) {
+  if (!column) return false
+  const key = String(column.key || '').trim().toLowerCase()
+  const label = String(column.label || '').trim().toLowerCase()
+  return key === '__no__' || /^provincias?$/.test(key) || /^(no\.?|nro\.?|provincias?)$/.test(label)
+}
+
+function alignHorizontalEntityHeader(cell, column, section) {
+  if (section !== 'head' || !isHorizontalEntityHeader(column)) return
+  cell.styles.valign = 'middle'
+  cell.styles.halign = 'center'
+}
+
 function keepNumericCellSingleLine(doc, cell, cellWidth) {
   const text = cell.text.join('')
   cell.text = [text]
@@ -685,9 +801,12 @@ function eventColumns(items) {
     .filter((key) => !['Provincia', 'ProvinciaID', 'NumeroEventos'].includes(key) && !known.has(key))
     .map((key) => ({ key, label: humanize(key) }))
   const types = [...EVENT_TYPES, ...dynamic].filter((type) => has(items, type.key) && sum(items, type.key) !== 0)
-  return [{ key: '__no__', label: 'No.', type: 'index' }, { key: 'Provincia', label: 'Provincia', type: 'text' },
-    { key: 'NumeroEventos', label: 'Nro. de eventos adversos', type: 'number' },
-    ...types.map((type) => ({ ...type, type: 'number', vertical: true }))]
+  return [
+    { key: '__no__', label: 'No.', type: 'index' },
+    { key: 'Provincia', label: 'Provincia', type: 'text' },
+    ...types.map((type) => ({ ...type, type: 'number', vertical: true })),
+    { key: '__total__', label: 'Total', type: 'number' },
+  ]
 }
 
 function renderEventsTable(doc, currentY, items, metadata) {
@@ -703,20 +822,25 @@ function renderEventsTable(doc, currentY, items, metadata) {
   currentY = ensurePageSpace(doc, currentY, 45)
   const sorted = [...items].sort((a, b) => n(b?.NumeroEventos) - n(a?.NumeroEventos))
   const body = sorted.map((row, index) => columns.map((column) => column.type === 'index' ? index + 1
-    : column.type === 'text' ? String(row?.[column.key] ?? '') : fmt(row?.[column.key] ?? 0)))
-  body.push(columns.map((column) => column.type === 'index' ? '' : column.type === 'text' ? 'Total general' : fmt(sum(items, column.key))))
-  body.push(columns.map((column) => ['index', 'text'].includes(column.type) || column.key === 'NumeroEventos' ? '' : pct(totalEvents ? (sum(items, column.key) / totalEvents) * 100 : 0)))
+    : column.type === 'text' ? String(row?.[column.key] ?? '')
+      : column.key === '__total__' ? fmt(row?.NumeroEventos ?? 0) : fmt(row?.[column.key] ?? 0)))
+  body.push(columns.map((column) => column.type === 'index' ? ''
+    : column.type === 'text' ? 'Total general'
+      : column.key === '__total__' ? fmt(totalEvents) : fmt(sum(items, column.key))))
+  body.push(columns.map((column) => column.type === 'index' ? ''
+    : column.type === 'text' ? 'Porcentaje'
+      : column.key === '__total__' ? pct(100) : pct(totalEvents ? (sum(items, column.key) / totalEvents) * 100 : 0)))
   const fixed = 40, eventWidth = (PAGE.contentWidth - fixed) / Math.max(columns.length - 3, 1)
   const columnStyles = {
     0: { cellWidth: 6 },
     1: { cellWidth: 24, halign: 'left', overflow: 'linebreak' },
-    2: { cellWidth: 10, cellPadding: 0.1, overflow: 'hidden' },
   }
-  columns.slice(3).forEach((_, index) => {
-    columnStyles[index + 3] = { cellWidth: eventWidth, cellPadding: 0.1, overflow: 'hidden' }
+  columns.slice(2, -1).forEach((_, index) => {
+    columnStyles[index + 2] = { cellWidth: eventWidth, cellPadding: 0.1, overflow: 'hidden' }
   })
+  columnStyles[columns.length - 1] = { cellWidth: 10, cellPadding: 0.1, overflow: 'hidden' }
   const maxEvents = Math.max(1, ...sorted.map((row) => n(row?.NumeroEventos)))
-  const maxEventTypeTotal = Math.max(1, ...columns.slice(3).map((column) => sum(items, column.key)))
+  const maxEventTypeTotal = Math.max(1, ...columns.slice(2, -1).map((column) => sum(items, column.key)))
   autoTable(doc, {
     startY: currentY, head: [columns.map((column) => column.label)], body, theme: 'grid', tableWidth: PAGE.contentWidth,
     margin: { left: PAGE.left, right: PAGE.right, top: PAGE.top, bottom: PAGE.height - PAGE.bottom },
@@ -724,21 +848,23 @@ function renderEventsTable(doc, currentY, items, metadata) {
     headStyles: { fillColor: C.navy, textColor: C.white, minCellHeight: 30, fontSize: 6 },
     alternateRowStyles: { fillColor: C.alternate }, columnStyles, rowPageBreak: 'avoid', showHead: 'everyPage',
     didParseCell: ({ cell, column, row, section }) => {
+      alignHorizontalEntityHeader(cell, columns[column.index], section)
       if (section === 'head' && columns[column.index]?.vertical) cell.text = ['']
       if (section !== 'body') return
       if (column.index >= 1) cell.styles.fontStyle = 'bold'
       if (row.index === body.length - 2) Object.assign(cell.styles, { fillColor: C.navy, textColor: C.white, fontStyle: 'bold' })
       else if (row.index === body.length - 1) {
-        if (column.index < 3) { cell.styles.fillColor = C.white; cell.text = [''] }
-        else cell.styles.fillColor = heat(sum(items, columns[column.index].key), maxEventTypeTotal)
-      } else if (columns[column.index]?.key === 'NumeroEventos') cell.styles.fillColor = heat(n(sorted[row.index]?.NumeroEventos), maxEvents)
-      if (column.index >= 2) keepNumericCellSingleLine(doc, cell, column.index === 2 ? 10 : eventWidth)
+        if (column.index < 2 || column.index === columns.length - 1) {
+          Object.assign(cell.styles, { fillColor: C.navy, textColor: C.white, fontStyle: 'bold' })
+        } else cell.styles.fillColor = heat(sum(items, columns[column.index].key), maxEventTypeTotal)
+      } else if (columns[column.index]?.key === '__total__') cell.styles.fillColor = heat(n(sorted[row.index]?.NumeroEventos), maxEvents)
+      if (column.index >= 2) keepNumericCellSingleLine(doc, cell, column.index === columns.length - 1 ? 10 : eventWidth)
     },
     didDrawCell: ({ cell, column, section }) => {
       if (section === 'head' && columns[column.index]?.vertical) verticalHeader(doc, columns[column.index].label, cell, Math.min(5.8, eventWidth * 1.15))
     },
   })
-  return sourceLine(doc, doc.lastAutoTable.finalY + 3, metadata) + 2
+  return sourceLine(doc, doc.lastAutoTable.finalY + 2.5, metadata) + 2
 }
 
 function indicatorGroups(items, viasItems) {
@@ -828,6 +954,7 @@ function renderProvinceDetail(doc, currentY, items, metadata, sectionNumber = '4
     headStyles: { fillColor: C.navy, textColor: C.white, minCellHeight: 32, fontSize: 5.3 },
     alternateRowStyles: { fillColor: C.alternate }, columnStyles, rowPageBreak: 'avoid', showHead: 'everyPage',
     didParseCell: ({ cell, column, row, section }) => {
+      alignHorizontalEntityHeader(cell, columns[column.index], section)
       if (section === 'head' && column.index >= 2) cell.text = ['']
       if (section !== 'body') return
       if (column.index >= 1) cell.styles.fontStyle = 'bold'
@@ -839,7 +966,7 @@ function renderProvinceDetail(doc, currentY, items, metadata, sectionNumber = '4
       if (section === 'head' && column.index >= 2) verticalHeader(doc, columns[column.index].label, cell, Math.max(4.4, Math.min(5.3, numericWidth)))
     },
   })
-  return sourceLine(doc, doc.lastAutoTable.finalY + 3, metadata, '. Nota: Personas impactadas incluye personas afectadas y damnificadas.') + 2
+  return sourceLine(doc, doc.lastAutoTable.finalY, metadata, '. Nota: Personas impactadas incluye personas afectadas y damnificadas.') + 2
 }
 
 function renderProvinceImpactChart(doc, currentY, items, metadata) {
@@ -953,16 +1080,17 @@ function renderMonthlySummary(doc, currentY, items, metadata) {
   if (!rows.length) return currentY
   const totalEvents = rows.reduce((total, row) => total + row.events, 0), totalPeople = rows.reduce((total, row) => total + row.people, 0)
   const top = [...rows].sort((a, b) => b.people - a.people)[0]
-  currentY = ensurePageSpace(doc, currentY, 68)
+  const sideBySideHeight = Math.max(68, 24 + (rows.length + 2) * 5.5)
+  currentY = ensurePageSpace(doc, currentY, sideBySideHeight)
   font(doc, 'normal', 8.4)
   currentY = wrapped(doc, `Desde el ${metadata.startNumeric} hasta el ${metadata.endNumeric}, el mayor impacto a la población se registró en ${top.month}, con ${pct(totalPeople ? (top.people / totalPeople) * 100 : 0)}.`, PAGE.left, currentY, PAGE.contentWidth) + 3
   const columns = [
     { key: 'month', label: 'Mes', total: 'Total general' },
     ...(totalEvents !== 0 ? [
-      { key: 'events', label: 'Número de eventos', total: fmt(totalEvents) },
+      { key: 'events', label: 'Número de eventos', total: fmtInteger(totalEvents) },
     ] : []),
     ...(totalPeople !== 0 ? [
-      { key: 'people', label: 'Personas impactadas', total: fmt(totalPeople) },
+      { key: 'people', label: 'Personas impactadas', total: fmtInteger(totalPeople) },
     ] : []),
     ...(totalEvents !== 0 ? [
       { key: 'eventPct', label: '% de recurrencia Eventos', total: '100%' },
@@ -973,8 +1101,8 @@ function renderMonthlySummary(doc, currentY, items, metadata) {
   ]
   const body = rows.map((row) => columns.map((column) => {
     if (column.key === 'month') return row.month
-    if (column.key === 'events') return fmt(row.events)
-    if (column.key === 'people') return fmt(row.people)
+    if (column.key === 'events') return fmtInteger(row.events)
+    if (column.key === 'people') return fmtInteger(row.people)
     if (column.key === 'eventPct') return pct(row.events / totalEvents * 100)
     return pct(row.people / totalPeople * 100)
   }))
@@ -984,7 +1112,8 @@ function renderMonthlySummary(doc, currentY, items, metadata) {
   autoTable(doc, {
     startY: currentY, head: [columns.map((column) => column.label)], body,
     theme: 'grid', margin: { left: PAGE.left }, tableWidth: 84,
-    styles: { font: 'BarlowCondensed', fontSize: 6.8, cellPadding: 1, halign: 'center', lineWidth: 0.12, lineColor: C.line },
+    pageBreak: 'avoid',
+    styles: { font: 'BarlowCondensed', fontSize: 6, cellPadding: 1, halign: 'center', lineWidth: 0.12, lineColor: C.line },
     headStyles: { fillColor: C.navy, textColor: C.white }, alternateRowStyles: { fillColor: C.alternate },
     didParseCell: ({ cell, column, row, section }) => {
       if (section !== 'body') return
@@ -1023,7 +1152,7 @@ function renderMonthlySummary(doc, currentY, items, metadata) {
     doc.setFillColor(69, 114, 190); doc.rect(bx, y + height - bh, bw, bh, 'F')
     points.push([centerX, y + height - row.people / maxPeople * height])
     eventLabels.push({
-      text: fmt(row.events),
+      text: fmtInteger(row.events),
       centerX,
       top: Math.max(y - labelHeight - 0.4, y + height - bh - labelHeight - labelGap),
     })
@@ -1037,7 +1166,7 @@ function renderMonthlySummary(doc, currentY, items, metadata) {
   })
   eventLabels.forEach((label) => drawLabel(label.text, label.centerX, label.top, C.pale, C.blue))
   points.forEach(([px, py], index) => {
-    const text = fmt(rows[index].people)
+    const text = fmtInteger(rows[index].people)
     let labelTop = Math.max(y - labelHeight - 0.4, py - labelHeight - labelGap)
     const eventLabel = eventLabels[index]
     const peopleMetrics = labelMetrics(text)
@@ -1064,7 +1193,7 @@ function renderMonthlySummary(doc, currentY, items, metadata) {
   font(doc, 'normal', 5.2, C.gray)
   doc.text('Personas Impactadas', legendX + 51, legendY)
 
-  return sourceLine(doc, Math.max(doc.lastAutoTable.finalY, legendY + 4) + 3, metadata)
+  return sourceLine(doc, Math.max(doc.lastAutoTable.finalY, legendY + 4), metadata)
 }
 
 function detectColumns(items, priority = []) {
@@ -1076,7 +1205,8 @@ function detectColumns(items, priority = []) {
       return values.length && (!numeric || sum(items, key) !== 0)
     }).map((key) => {
       const values = items.map((row) => row?.[key]).filter((value) => value !== undefined && value !== null && String(value).trim() !== '')
-      return { key, label: humanize(key), type: values.length && values.every((value) => Number.isFinite(Number(String(value).replace(',', '.')))) ? 'number' : 'text' }
+      const numeric = values.length && values.every((value) => Number.isFinite(Number(String(value).replace(',', '.'))))
+      return { key, label: humanize(key), type: numeric ? 'number' : 'text', format: /^(fecha|apertura|cierre)$/i.test(key) ? reportDateOnly : undefined }
     })
 }
 
@@ -1087,12 +1217,20 @@ function renderGenericTable(doc, currentY, items, options = {}) {
     .filter((column) => !['number', 'decimal'].includes(column.type) || sum(items, column.key) !== 0)
   if (!columns.length) return currentY
   currentY = ensurePageSpace(doc, currentY, 30)
-  const body = items.map((row) => columns.map((column) => ['number', 'decimal'].includes(column.type)
-    ? fmt(row?.[column.key], column.type === 'decimal') : String(row?.[column.key] ?? '')))
-  if (options.total) body.push(columns.map((column, index) => ['number', 'decimal'].includes(column.type)
-    ? fmt(sum(items, column.key), column.type === 'decimal') : index === 0 ? 'Total general' : ''))
+  const body = items.map((row) => columns.map((column) => tableValue(column, row?.[column.key])))
+  const totalKeys = new Set(options.totalKeys || [])
+  if (options.total) body.push(columns.map((column, index) => {
+    const shouldTotal = ['number', 'decimal'].includes(column.type)
+      && (!totalKeys.size || totalKeys.has(column.key))
+    return shouldTotal
+      ? fmt(sum(items, column.key), column.type === 'decimal')
+      : index === 0 ? 'Total general' : ''
+  }))
   const provinceIndex = columns.findIndex((column) => /provincia/i.test(`${column.key} ${column.label}`))
   const textIndex = provinceIndex >= 0 ? provinceIndex : Math.max(0, columns.findIndex((column) => column.type === 'text'))
+  const isVerticalHeader = (column, index) => options.vertical !== false
+    && index !== textIndex
+    && !isHorizontalEntityHeader(column)
   const textWidth = provinceIndex >= 0 ? 24 : Math.min(44, PAGE.contentWidth * 0.34)
   const otherWidth = (PAGE.contentWidth - textWidth) / Math.max(columns.length - 1, 1), columnStyles = {}
   columns.forEach((column, index) => {
@@ -1107,20 +1245,21 @@ function renderGenericTable(doc, currentY, items, options = {}) {
     headStyles: { fillColor: C.navy, textColor: C.white, minCellHeight: options.vertical === false ? 7 : 25 },
     alternateRowStyles: { fillColor: C.alternate }, columnStyles, showHead: 'everyPage', rowPageBreak: 'avoid',
     didParseCell: ({ cell, column, row, section }) => {
-      if (section === 'head' && options.vertical !== false && column.index !== textIndex) cell.text = ['']
+      alignHorizontalEntityHeader(cell, columns[column.index], section)
+      if (section === 'head' && isVerticalHeader(columns[column.index], column.index)) cell.text = ['']
       if (section === 'body' && options.total && row.index === body.length - 1) Object.assign(cell.styles, { fillColor: C.navy, textColor: C.white, fontStyle: 'bold' })
       const isRequestedBoldColumn = options.boldColumns?.includes(columns[column.index]?.key)
       if (section === 'body' && (isBoldEntityColumn(columns[column.index]) || ['number', 'decimal'].includes(columns[column.index]?.type) || isRequestedBoldColumn)) cell.styles.fontStyle = 'bold'
       if (section === 'body' && ['number', 'decimal'].includes(columns[column.index]?.type)) keepNumericCellSingleLine(doc, cell, otherWidth)
     },
     didDrawCell: ({ cell, column, section }) => {
-      if (section === 'head' && options.vertical !== false && column.index !== textIndex) verticalHeader(doc, columns[column.index].label, cell, 5.2)
+      if (section === 'head' && isVerticalHeader(columns[column.index], column.index)) verticalHeader(doc, columns[column.index].label, cell, 5.2)
     },
   })
-  return doc.lastAutoTable.finalY + 3
+  return doc.lastAutoTable.finalY
 }
 
-function renderTemporaryShelterSection(doc, currentY, number, title, items, priority, metadata, action) {
+function renderTemporaryShelterSection(doc, currentY, number, title, items, priority, metadata, action, totalKeys = []) {
   if (!items.length) return currentY
   currentY = renderSectionTitle(doc, currentY, number, title)
   const shelterCount = items.length
@@ -1137,6 +1276,8 @@ function renderTemporaryShelterSection(doc, currentY, number, title, items, prio
     fontSize: 7,
     vertical: false,
     boldColumns: ['Apertura', 'Cierre'],
+    total: totalKeys.length > 0,
+    totalKeys,
   })
   return sourceLine(doc, currentY, metadata) + 2
 }
@@ -1144,8 +1285,9 @@ function renderTemporaryShelterSection(doc, currentY, number, title, items, prio
 function renderTemporaryShelters(doc, currentY, openItems, closedItems, metadata) {
   currentY = renderTemporaryShelterSection(
     doc, currentY, '5.1', 'Alojamientos Temporales Abiertos', openItems,
-    ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura'], metadata,
+    ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura', 'Familias', 'Personas'], metadata,
     { singular: 'activado', plural: 'activado' },
+    ['Familias', 'Personas'],
   )
   return renderTemporaryShelterSection(
     doc, currentY + 2, '5.2', 'Alojamientos Temporales Cerrados', closedItems,
@@ -1196,9 +1338,14 @@ function renderAssistance(doc, currentY, sngr, sndgird, metadata) {
 function declarationDate(value) {
   const raw = String(value ?? '').trim()
   if (!raw) return ''
-  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw)
-  if (Number.isNaN(parsed.getTime())) return raw
-  return parsed.toLocaleDateString('es-EC', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).replaceAll('.', '')
+  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(raw)
+  const parsed = calendarDate ? null : new Date(raw)
+  if (!calendarDate && Number.isNaN(parsed.getTime())) return raw
+  const year = calendarDate ? calendarDate[1] : String(parsed.getUTCFullYear())
+  const month = calendarDate ? Number(calendarDate[2]) : parsed.getUTCMonth() + 1
+  const day = calendarDate ? Number(calendarDate[3]) : parsed.getUTCDate()
+  const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+  return `${day} ${months[month - 1]} ${year}`
 }
 
 function alertLevelColor(value) {
@@ -1206,6 +1353,8 @@ function alertLevelColor(value) {
   if (level.includes('rojo')) return [242, 13, 18]
   if (level.includes('naranja')) return C.orange
   if (level.includes('amarillo')) return C.yellow
+  if (level.includes('verde')) return C.green
+  if (level.includes('azul')) return C.blue
   return null
 }
 
@@ -1282,13 +1431,16 @@ function renderDeclarationTable(doc, currentY, title, items, columns, colorAlert
     showHead: 'everyPage',
     rowPageBreak: 'avoid',
     didParseCell: ({ cell, column, row, section }) => {
+      alignHorizontalEntityHeader(cell, columns[column.index], section)
       if (section !== 'body') return
       if (isBoldEntityColumn(columns[column.index])) cell.styles.fontStyle = 'bold'
       if (!colorAlerts || columns[column.index]?.key !== 'NivelAlerta') return
       const fillColor = alertLevelColor(items[row.index]?.NivelAlerta)
       if (fillColor) {
         cell.styles.fillColor = fillColor
-        cell.styles.textColor = String(items[row.index]?.NivelAlerta || '').toLowerCase().includes('amarillo') ? C.black : C.white
+        const level = String(items[row.index]?.NivelAlerta || '').toLowerCase()
+        cell.styles.textColor = level.includes('amarillo') || level.includes('verde') ? C.black : C.white
+        cell.styles.fontStyle = 'bold'
       }
     },
   })
@@ -1314,19 +1466,21 @@ function renderCoeTable(doc, currentY, items, columns, options = {}) {
   if (!items.length) return currentY
   const body = items.map((row, rowIndex) => columns.map((column) => {
     if (column.key === '__no__') return rowIndex + 1
-    if (column.key === 'FechaInicial') return declarationDate(row?.[column.key])
+    if (column.key === 'FechaInicial') return declarationDate(row?.[column.key]) || '--'
     if (column.key === 'PorcentajeActivacion') return `${Number(row?.[column.key]) || 0}%`
     return String(row?.[column.key] ?? '--')
   }))
   const columnStyles = Object.fromEntries(columns.map((column, index) => [index, { cellWidth: column.width }]))
 
+  const tableWidth = options.tableWidth || PAGE.contentWidth
+  const tableLeft = options.left ?? (PAGE.width - tableWidth) / 2
   autoTable(doc, {
     startY: currentY,
     head: [columns.map((column) => column.label)],
     body,
     theme: 'grid',
-    tableWidth: options.tableWidth || PAGE.contentWidth,
-    margin: { left: options.left || PAGE.left, right: PAGE.right, top: PAGE.top, bottom: PAGE.height - PAGE.bottom },
+    tableWidth,
+    margin: { left: tableLeft, right: PAGE.width - tableLeft - tableWidth, top: PAGE.top, bottom: PAGE.height - PAGE.bottom },
     styles: { font: 'BarlowCondensed', fontSize: options.fontSize || 6.2, cellPadding: 0.7, halign: 'center', valign: 'middle', lineWidth: 0.12, lineColor: C.line },
     headStyles: { fillColor: C.darkNavy, textColor: C.white, fontStyle: 'bold', minCellHeight: 8 },
     bodyStyles: { fillColor: C.white },
@@ -1334,6 +1488,7 @@ function renderCoeTable(doc, currentY, items, columns, options = {}) {
     showHead: 'everyPage',
     rowPageBreak: 'avoid',
     didParseCell: ({ cell, column, row, section }) => {
+      alignHorizontalEntityHeader(cell, columns[column.index], section)
       if (section !== 'body') return
       if (isBoldEntityColumn(columns[column.index]) || /total|porcentaje/i.test(columns[column.index]?.key || '')) cell.styles.fontStyle = 'bold'
       if (columns[column.index]?.key === 'Estado') cell.styles.textColor = [239, 68, 68]
@@ -1366,7 +1521,7 @@ function renderActivatedCoes(doc, currentY, nationalItems, provincialItems, muni
   doc.line(PAGE.left + 2, currentY + 0.8, PAGE.left + 2 + doc.getTextWidth(heading), currentY + 0.8)
   currentY += 5
   font(doc, 'normal', 8.2, C.black)
-  currentY = wrapped(doc, `Desde el ${metadata.startLong} hasta el ${metadata.endLong} se han activado los siguientes COE:`, PAGE.left + 2, currentY, PAGE.contentWidth - 2) + 2
+  currentY = wrapped(doc, `Desde el 1 ene ${metadata.year} hasta el ${metadata.endLong} se han activado los siguientes COE:`, PAGE.left + 2, currentY, PAGE.contentWidth - 2) + 2
 
   if (national) {
     currentY = renderCoeSubtitle(doc, currentY, `COE Nacional activo desde el ${declarationDate(national.FechaInicial)}.`)
@@ -1375,11 +1530,11 @@ function renderActivatedCoes(doc, currentY, nationalItems, provincialItems, muni
   if (provincial.length) {
     currentY = renderCoeSubtitle(doc, currentY, `${fmt(provincial.length)} COE provinciales:`)
     currentY = renderCoeTable(doc, currentY, provincial, [
-      { key: '__no__', label: 'Nro.', width: 10 },
-      { key: 'Provincia', label: 'Provincia', width: 50 },
-      { key: 'FechaInicial', label: 'Fecha de Activación', width: 32 },
-      { key: 'Estado', label: 'Estado', width: 25 },
-    ], { tableWidth: 117, left: PAGE.left + 20 })
+      { key: '__no__', label: 'Nro.', width: 8 },
+      { key: 'Provincia', label: 'Provincia', width: 36 },
+      { key: 'FechaInicial', label: 'Fecha de activación', width: 28 },
+      { key: 'Estado', label: 'Estado', width: 20 },
+    ], { tableWidth: 92 })
   }
 
   if (municipal.totalActive) {
@@ -1389,23 +1544,23 @@ function renderActivatedCoes(doc, currentY, nationalItems, provincialItems, muni
       { Provincia: 'Total general', TotalCantones: municipal.totalCantons, CantonesActivos: municipal.totalActive, PorcentajeActivacion: municipal.globalPercentage },
     ]
     currentY = renderCoeTable(doc, currentY, municipalRows, [
-      { key: 'Provincia', label: 'Provincia', width: 52 },
-      { key: 'TotalCantones', label: 'Total de Cantones', width: 32 },
-      { key: 'CantonesActivos', label: 'Nro. de COE Cantonales Activos', width: 44 },
-      { key: 'PorcentajeActivacion', label: '% de COE cantonales activos', width: 40 },
-    ], { tableWidth: 168, left: PAGE.left + 2, percentageColumn: 3, totalRowIndex: municipalRows.length - 1 })
+      { key: 'Provincia', label: 'Provincia', width: 38 },
+      { key: 'TotalCantones', label: 'Total de Cantones', width: 24 },
+      { key: 'CantonesActivos', label: 'Nro. de COE Cantonales Activos', width: 38 },
+      { key: 'PorcentajeActivacion', label: '% de COE cantonales activos', width: 32 },
+    ], { tableWidth: 132, percentageColumn: 3, totalRowIndex: municipalRows.length - 1 })
   }
 
   if (parish.length) {
     currentY = renderCoeSubtitle(doc, currentY, `${fmt(parish.length)} COE parroquiales:`)
     currentY = renderCoeTable(doc, currentY, parish, [
-      { key: '__no__', label: 'Nro.', width: 8 },
-      { key: 'Provincia', label: 'Provincia', width: 31 },
-      { key: 'Canton', label: 'Cantón', width: 31 },
-      { key: 'Parroquia', label: 'Parroquia', width: 38 },
-      { key: 'FechaInicial', label: 'Fecha de Activación', width: 35 },
-      { key: 'Estado', label: 'Estado', width: 25 },
-    ], { tableWidth: 168, left: PAGE.left + 2 })
+      { key: '__no__', label: 'Nro.', width: 7 },
+      { key: 'Provincia', label: 'Provincia', width: 23 },
+      { key: 'Canton', label: 'Cantón', width: 23 },
+      { key: 'Parroquia', label: 'Parroquia', width: 27 },
+      { key: 'FechaInicial', label: 'Fecha de activación', width: 28 },
+      { key: 'Estado', label: 'Estado', width: 18 },
+    ], { tableWidth: 126 })
   }
   return currentY
 }
@@ -1456,6 +1611,28 @@ function renderPagedText(doc, currentY, text, options = {}) {
   return currentY + after
 }
 
+function renderHighImpactEventMeta(doc, currentY, item) {
+  const tags = highImpactEventMetaItems(item)
+  if (!tags.length) return currentY
+  currentY = ensurePageSpace(doc, currentY, 7)
+  const tagColors = {
+    type: { fill: [255, 240, 228], border: [242, 196, 159], text: [154, 61, 0] },
+    datetime: { fill: [231, 242, 252], border: [184, 212, 238], text: [7, 59, 112] },
+  }
+  let tagX = PAGE.left + 7
+  tags.forEach((tag) => {
+    font(doc, 'bold', 7, tagColors[tag.kind].text)
+    const tagWidth = doc.getTextWidth(tag.value) + 6
+    const colors = tagColors[tag.kind]
+    doc.setFillColor(...colors.fill)
+    doc.setDrawColor(...colors.border)
+    doc.roundedRect(tagX, currentY - 2.4, tagWidth, 4.7, 2, 2, 'FD')
+    doc.text(tag.value, tagX + 3, currentY + 0.1)
+    tagX += tagWidth + 2
+  })
+  return currentY + 4.7
+}
+
 function renderHighImpactEvents(doc, currentY, items, metadata, alwaysShow = false) {
   if (!items.length && !alwaysShow) return currentY
   currentY = renderSectionTitle(doc, currentY + 4, '8', 'Eventos adversos de alto impacto')
@@ -1487,6 +1664,7 @@ function renderHighImpactEvents(doc, currentY, items, metadata, alwaysShow = fal
       color: [11, 31, 120],
       after: 0.8,
     })
+    currentY = renderHighImpactEventMeta(doc, currentY, item)
 
     if (String(item?.Antecedentes ?? '').trim()) {
       currentY = renderPagedText(doc, currentY, item.Antecedentes, { left: PAGE.left + 7, width: PAGE.contentWidth - 7, fontSize: 8.2, after: 1 })
@@ -1506,7 +1684,7 @@ function renderHighImpactEvents(doc, currentY, items, metadata, alwaysShow = fal
     })
 
     if (String(item?.CoordinacionYRespuesta ?? '').trim()) {
-      reportLines(item.CoordinacionYRespuesta).forEach((line) => {
+      cleanHighImpactResponseLines(item.CoordinacionYRespuesta).forEach((line) => {
         currentY = renderPagedText(doc, currentY, line, {
           left: PAGE.left + 7,
           width: PAGE.contentWidth - 7,
@@ -1643,7 +1821,7 @@ export async function buildEventosLluviasPdf({
     ? { ...baseMetadata, report24h: true, title: `Reporte de lluvias con incidencia del Evento El Niño, del ${baseMetadata.startLong} al ${baseMetadata.endLong}` }
     : baseMetadata
   let currentY = PAGE.firstTop
-  currentY = renderImportantPoints(doc, currentY, { items, tipoLluviasItems, asistenciaItems, dpaTotals, metadata, affectationLevel, importantPointLines })
+  currentY = renderImportantPoints(doc, currentY, { items, tipoLluviasItems, asistenciaItems, eventosMesItems, dpaTotals, metadata, affectationLevel, importantPointLines })
   if (!report24h) currentY = renderHydrometeorology(doc, currentY, hydrometeorology)
   if (!report24h) currentY = renderWaterBodies(doc, currentY, waterBodiesOverflowed, waterBodiesRising, metadata)
   currentY = renderEventsTable(doc, currentY, tipoLluviasItems, metadata)

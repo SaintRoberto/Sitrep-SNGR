@@ -8,7 +8,13 @@ import { buildProvinceImpactMap, ECUADOR_PROVINCES, impactColor, impactLegend, p
 
 const C = { navy: '1F3C69', dark: '092A5B', blue: '3167B0', pale: 'DDE6F4', orange: 'F17121', red: 'EC1822', gray: '6C7582', white: 'FFFFFF', black: '141920', line: 'CDD6E2' }
 const NONE = Object.fromEntries(['top', 'bottom', 'left', 'right', 'insideHorizontal', 'insideVertical'].map((side) => [side, { style: BorderStyle.NONE, size: 0, color: C.white }]))
-const EVENTS = [['Inundacion', 'Inundación'], ['Deslizamiento', 'Deslizamiento'], ['Lluvias_Intensas', 'Lluvias intensas'], ['Erosion_Hidrica', 'Erosión hídrica'], ['Hundimiento', 'Hundimiento'], ['Aluvion', 'Aluvión'], ['Vendaval', 'Vendaval'], ['Caidas_Colapso', 'Caídas'], ['Tormenta_Electrica', 'Tormenta eléctrica'], ['Granizada', 'Granizada']]
+const EVENTS = [
+  ['Inundacion', 'Inundación'], ['Deslizamiento', 'Deslizamiento'], ['Lluvias_Intensas', 'Lluvias intensas'],
+  ['Erosion_Hidrica', 'Erosión hídrica'], ['Hundimiento', 'Hundimiento'], ['Aluvion', 'Aluvión'],
+  ['Vendaval', 'Vendaval'], ['Caidas_Colapso', 'Caídas'], ['Tormenta_Electrica', 'Tormenta eléctrica'],
+  ['Granizada', 'Granizada'], ['Reptacion', 'Reptación'], ['Avalancha', 'Avalancha'], ['Nevada', 'Nevada'],
+  ['Exceso_Humedad', 'Exceso de humedad'], ['Torbellino', 'Torbellino'], ['Colapso_Infraestructura', 'Colapso de infraestructura'],
+]
 const LOGO_URL = new URL('../assets/LOGOECUADOR.png', import.meta.url).href
 const ASSISTANCE_LOGO_URL = new URL('../assets/asistenciaLogo.png', import.meta.url).href
 const ICONS = {
@@ -76,11 +82,17 @@ async function generateImpactMap(items) {
 }
 async function generateEventDonut(rows) {
   return canvasPng(1400, 1150, (ctx) => {
-    const ranked = EVENTS.map(([key, label]) => ({ label, value: sum(rows, key) })).filter((item) => item.value > 0).sort((a, b) => b.value - a.value); const total = ranked.reduce((a, b) => a + b.value, 0)
-    if (!total) { chartFont(ctx, 34, false); ctx.textAlign = 'center'; ctx.fillText('Sin datos reportados', 700, 575); return }
+    const ranked = EVENTS.map(([key, label]) => ({ label, value: sum(rows, key) })).filter((item) => item.value > 0)
+    const reportedTotal = sum(rows, 'NumeroEventos')
+    const categorizedTotal = ranked.reduce((total, item) => total + item.value, 0)
+    if (reportedTotal > categorizedTotal) ranked.push({ label: 'Otros eventos', value: reportedTotal - categorizedTotal })
+    ranked.sort((a, b) => b.value - a.value)
+    const sliceTotal = ranked.reduce((total, item) => total + item.value, 0)
+    const displayTotal = reportedTotal || sliceTotal
+    if (!sliceTotal) { chartFont(ctx, 34, false); ctx.textAlign = 'center'; ctx.fillText('Sin datos reportados', 700, 575); return }
     const colors = ['#2a5393', '#3665ac', '#4a77bb', '#5f8ac5', '#779acd', '#8eabd6', '#a4bbdf', '#bacae7']; let angle = -Math.PI / 2; const cx = 720; const cy = 700; const radius = 360; const slices = []
     ctx.save(); ctx.shadowColor = 'rgba(30, 45, 70, 0.55)'; ctx.shadowBlur = 4; ctx.fillStyle = '#45536d'; ctx.beginPath(); ctx.arc(cx + 16, cy + 24, radius + 3, 0, Math.PI * 2); ctx.fill(); ctx.restore()
-    ranked.forEach((item, index) => { const end = angle + item.value / total * Math.PI * 2; const middle = (angle + end) / 2; const explode = index < 2 ? 12 : 0; const ox = Math.cos(middle) * explode; const oy = Math.sin(middle) * explode; slices.push({ ...item, index, start: angle, end, middle, ox, oy }); ctx.beginPath(); ctx.moveTo(cx + ox, cy + oy); ctx.arc(cx + ox, cy + oy, radius, angle, end); ctx.closePath(); ctx.fillStyle = colors[index % colors.length]; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 10; ctx.stroke(); angle = end })
+    ranked.forEach((item, index) => { const end = angle + item.value / sliceTotal * Math.PI * 2; const middle = (angle + end) / 2; const explode = index < 2 ? 12 : 0; const ox = Math.cos(middle) * explode; const oy = Math.sin(middle) * explode; slices.push({ ...item, index, start: angle, end, middle, ox, oy }); ctx.beginPath(); ctx.moveTo(cx + ox, cy + oy); ctx.arc(cx + ox, cy + oy, radius, angle, end); ctx.closePath(); ctx.fillStyle = colors[index % colors.length]; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 10; ctx.stroke(); angle = end })
     slices.slice(0, 2).forEach((slice) => { const x = cx + slice.ox + Math.cos(slice.middle) * 245; const y = cy + slice.oy + Math.sin(slice.middle) * 245; chartFont(ctx, 30, true, '#fff'); ctx.textAlign = 'center'; ctx.fillText(slice.label, x, y - 7); ctx.fillText(fmt(slice.value), x, y + 30) })
     const small = slices.slice(2, 10).map((slice) => ({ ...slice, edgeX: cx + Math.cos(slice.middle) * radius, edgeY: cy + Math.sin(slice.middle) * radius, outerX: cx + Math.cos(slice.middle) * (radius + 28), outerY: cy + Math.sin(slice.middle) * (radius + 28) })).sort((a, b) => a.edgeX - b.edgeX)
     small.forEach((slice, index) => {
@@ -89,7 +101,7 @@ async function generateEventDonut(rows) {
       const connectorY = labelY + lines.length * 38 + 25; ctx.strokeStyle = '#315f9e'; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(slice.edgeX, slice.edgeY); ctx.lineTo(slice.outerX, slice.outerY); ctx.lineTo(targetX, connectorY); ctx.stroke()
       chartFont(ctx, 36, true, '#265499'); ctx.textAlign = 'center'; lines.forEach((line, lineIndex) => ctx.fillText(line, targetX, labelY + lineIndex * 38)); chartFont(ctx, 32, true, '#265499'); ctx.fillText(fmt(slice.value), targetX, labelY + lines.length * 38)
     })
-    ctx.beginPath(); ctx.arc(cx, cy, 140, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill(); chartFont(ctx, 56, true, '#141920'); ctx.textAlign = 'center'; ctx.fillText(fmt(total), cx, cy - 15); chartFont(ctx, 31, true, '#1f3c69'); ctx.fillText('eventos', cx, cy + 30); ctx.fillText('adversos', cx, cy + 68)
+    ctx.beginPath(); ctx.arc(cx, cy, 140, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill(); chartFont(ctx, 56, true, '#141920'); ctx.textAlign = 'center'; ctx.fillText(fmt(displayTotal), cx, cy - 15); chartFont(ctx, 31, true, '#1f3c69'); ctx.fillText('eventos', cx, cy + 30); ctx.fillText('adversos', cx, cy + 68)
   })
 }
 async function generateProvinceChart(items) {
@@ -182,7 +194,7 @@ function provinceTable(options) {
   return table(data.map((row, ri) => row.map((value, ci) => {
     const isTotal = ri === data.length - 1; const isImpactBody = ci === 2 && ri > 0 && !isTotal
     const fill = isTotal ? C.blue : isImpactBody ? impactFill(rows[ri - 1][2]) : ri % 2 ? C.white : 'F1F6FC'
-    return cell([p([run(value, { bold: ri === 0 || isTotal, color: isTotal ? C.white : C.black, size: 11 })], { align: ci ? AlignmentType.CENTER : AlignmentType.LEFT })], { width: widths[ci], fill, margin: 15 })
+    return cell([p([run(value, { bold: ri === 0 || isTotal, color: isTotal ? C.white : C.black, size: 11 })], { align: ri === 0 || ci ? AlignmentType.CENTER : AlignmentType.LEFT })], { width: widths[ci], fill, margin: 15 })
   })), widths)
 }
 function hydro(options) {

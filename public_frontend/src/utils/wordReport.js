@@ -22,6 +22,7 @@ import {
   WidthType,
 } from 'docx'
 import { buildMunicipalCoeSummary, uniqueActiveCoeRows } from './coeConfig.js'
+import { cleanHighImpactResponseLines, highImpactEventMetaItems } from './highImpactEvents.js'
 import {
   buildProvinceImpactMap,
   ECUADOR_PROVINCES,
@@ -46,6 +47,14 @@ const COLORS = {
   red: 'FF3150',
   yellow: 'FFE063',
   green: '42BA3C',
+}
+
+const PERCENTAGE_COLORS = {
+  low: '66BB6A',
+  mid: 'A5D66F',
+  yellow: 'FFE57A',
+  high: 'F0A96B',
+  maximum: 'EF6B6B',
 }
 
 const PAGE_WIDTH_DXA = 11906
@@ -190,6 +199,56 @@ function localDate(value, fallback) {
   return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4] || 0), Number(match[5] || 0), Number(match[6] || 0)) : fallback
 }
 
+function isDateColumn(column) {
+  return /fecha|apertura|cierre/i.test(`${column?.key || ''} ${column?.label || ''}`)
+}
+
+function reportDate(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return ''
+  const raw = String(value).trim()
+  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(raw)
+  if (calendarDate) {
+    const date = `${calendarDate[1]}-${calendarDate[2]}-${calendarDate[3]}`
+    return calendarDate[4]
+      ? `${date} ${calendarDate[4]}:${calendarDate[5]}:${calendarDate[6] || '00'}`
+      : date
+  }
+  const parsed = value instanceof Date ? value : new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return raw
+  const date = `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, '0')}-${String(parsed.getUTCDate()).padStart(2, '0')}`
+  if (!(value instanceof Date) && !/\d{1,2}:\d{2}/.test(raw)) return date
+  return `${date} ${String(parsed.getUTCHours()).padStart(2, '0')}:${String(parsed.getUTCMinutes()).padStart(2, '0')}:${String(parsed.getUTCSeconds()).padStart(2, '0')}`
+}
+
+function reportDateOnly(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(raw)
+  if (calendarDate) return `${calendarDate[1]}-${calendarDate[2]}-${calendarDate[3]}`
+  const parsed = value instanceof Date ? value : new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return raw
+  return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, '0')}-${String(parsed.getUTCDate()).padStart(2, '0')}`
+}
+
+function reportDateSpanishLong(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(raw)
+  const parsed = calendarDate ? null : new Date(raw)
+  if (!calendarDate && Number.isNaN(parsed.getTime())) return raw
+  const year = calendarDate ? calendarDate[1] : String(parsed.getUTCFullYear())
+  const month = calendarDate ? Number(calendarDate[2]) : parsed.getUTCMonth() + 1
+  const day = calendarDate ? calendarDate[3] : String(parsed.getUTCDate()).padStart(2, '0')
+  const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+  return `${day} de ${months[month - 1]} de ${year}`
+}
+
+function tableValue(column, raw, row, rowIndex) {
+  if (column?.integer) return fmtInteger(raw)
+  if (isDateColumn(column)) return column.format ? column.format(raw, row, rowIndex) : reportDate(raw)
+  return column.format ? column.format(raw, row, rowIndex) : String(raw ?? '')
+}
+
 function periodMetadata(publishedAt, sitrepNumber, startDate, endDate) {
   const start = localDate(startDate, new Date(publishedAt.getFullYear(), 0, 1))
   const end = localDate(endDate, publishedAt)
@@ -274,7 +333,7 @@ function sourceLine(metadata, note = '') {
   return new Paragraph({
     children: [textRun(`${metadata.source}${note}`, true, { size: 12 })],
     alignment: AlignmentType.CENTER,
-    spacing: { before: 70, after: 120 },
+    spacing: { before: 0, after: 120 },
   })
 }
 
@@ -296,12 +355,22 @@ function keepNumericValueTogether(value) {
   return String(value).replace(/([.,])/g, '\u2060$1\u2060')
 }
 
+function percentageHeatColor(value, maximum) {
+  const numericValue = n(value)
+  if (maximum > 0 && numericValue === maximum) return PERCENTAGE_COLORS.maximum
+  const percentageOfMaximum = maximum > 0 ? numericValue / maximum * 100 : 0
+  if (percentageOfMaximum < 3) return PERCENTAGE_COLORS.low
+  if (percentageOfMaximum < 10) return PERCENTAGE_COLORS.mid
+  if (percentageOfMaximum < 30) return PERCENTAGE_COLORS.yellow
+  return PERCENTAGE_COLORS.high
+}
+
 function detailTableWidths(columns, rows) {
   const protectedWidths = columns.map((column) => {
     if (!column.singleLine) return null
     const longestValue = rows.reduce((longest, row, rowIndex) => {
       const raw = row?.[column.key]
-      const formatted = column.format ? column.format(raw, row, rowIndex) : String(raw ?? '')
+      const formatted = tableValue(column, raw, row, rowIndex)
       return Math.max(longest, String(formatted).length)
     }, 1)
     return Math.max(320, longestValue * 52 + 100)
@@ -438,7 +507,8 @@ function indicatorCell(item, assets, width = CONTENT_WIDTH_DXA / 2) {
 
 function dataTable(columns, rows, options = {}) {
   if (!columns.length) return null
-  const widths = options.widths || proportionalWidths(columns, CONTENT_WIDTH_DXA, options.firstWide)
+  const tableWidth = options.tableWidth || CONTENT_WIDTH_DXA
+  const widths = options.widths || proportionalWidths(columns, tableWidth, options.firstWide)
   const hasVerticalHeaders = Boolean(options.verticalHeaders)
   const headerFontSize = options.headerFontSize || (hasVerticalHeaders ? 12 : 13)
   const header = new TableRow({
@@ -447,13 +517,17 @@ function dataTable(columns, rows, options = {}) {
       ? { value: options.verticalHeaderHeight || verticalHeaderContentHeight(columns, headerFontSize), rule: HeightRule.ATLEAST }
       : undefined,
     children: columns.map((column, index) => {
-      const verticalHeader = typeof options.verticalHeaders === 'function'
+      const horizontalEntityHeader = isHorizontalEntityHeader(column)
+      const verticalHeader = !horizontalEntityHeader && (typeof options.verticalHeaders === 'function'
         ? options.verticalHeaders(column, index)
-        : options.verticalHeaders
+        : options.verticalHeaders)
       return tableCell(column.label, {
         width: widths[index], bold: true, fill: options.headerFill || COLORS.navy, color: COLORS.white,
         fontSize: headerFontSize,
-        textDirection: verticalHeader ? TextDirection.BOTTOM_TO_TOP_LEFT_TO_RIGHT : undefined,
+        alignment: verticalHeader ? AlignmentType.LEFT : AlignmentType.CENTER,
+        textDirection: verticalHeader
+          ? TextDirection.BOTTOM_TO_TOP_LEFT_TO_RIGHT
+          : horizontalEntityHeader ? TextDirection.LEFT_TO_RIGHT_TOP_TO_BOTTOM : undefined,
         margins: options.headerMargins,
       })
     }),
@@ -462,14 +536,17 @@ function dataTable(columns, rows, options = {}) {
     cantSplit: true,
     children: columns.map((column, columnIndex) => {
       const raw = Array.isArray(row) ? row[columnIndex] : row?.[column.key]
-      const formatted = column.format ? column.format(raw, row, rowIndex) : String(raw ?? '')
+      const formatted = tableValue(column, raw, row, rowIndex)
       const displayed = column.singleLine ? keepNumericValueTogether(formatted) : formatted
       const isTotal = options.totalRowIndex === rowIndex
+      const isPercentage = Boolean(row?.__isPercentage__)
+      const columnFill = typeof column.fill === 'function' ? column.fill(raw, row, rowIndex) : column.fill
+      const columnColor = typeof column.color === 'function' ? column.color(raw, row, rowIndex) : column.color
       return tableCell(displayed, {
         width: widths[columnIndex],
-        bold: isTotal || column.bold || ['number', 'decimal'].includes(column.type),
-        fill: isTotal ? COLORS.navy : (rowIndex % 2 ? COLORS.alternate : COLORS.white),
-        color: isTotal ? COLORS.white : COLORS.black,
+        bold: isTotal || isPercentage || column.bold || ['number', 'decimal'].includes(column.type),
+        fill: isTotal ? COLORS.navy : (columnFill || (rowIndex % 2 ? COLORS.alternate : COLORS.white)),
+        color: isTotal ? COLORS.white : (columnColor || COLORS.black),
         fontSize: options.fontSize || 13,
         alignment: column.align || (column.type === 'text' ? AlignmentType.LEFT : AlignmentType.CENTER),
         margins: options.cellMargins,
@@ -478,9 +555,10 @@ function dataTable(columns, rows, options = {}) {
   }))
   return new Table({
     rows: [header, ...body],
-    width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
+    width: { size: tableWidth, type: WidthType.DXA },
     columnWidths: widths,
     layout: TableLayoutType.FIXED,
+    alignment: options.alignment,
     margins: { top: 70, bottom: 70, left: 75, right: 75 },
     borders: Object.fromEntries(['top', 'bottom', 'left', 'right', 'insideHorizontal', 'insideVertical']
       .map((side) => [side, { color: COLORS.line, style: BorderStyle.SINGLE, size: 3 }])),
@@ -488,11 +566,25 @@ function dataTable(columns, rows, options = {}) {
 }
 
 function verticalDataHeader(column) {
-  return Boolean(column)
+  return Boolean(column) && !isHorizontalEntityHeader(column)
+}
+
+function isHorizontalEntityHeader(column) {
+  if (!column) return false
+  if (column.horizontal) return true
+  const key = String(column.key || '').trim().toLowerCase()
+  const label = String(column.label || '').trim().toLowerCase()
+  return key === '__no__' || isProvinceHeader(column) || /^(no\.?|nro\.?)$/.test(label)
+}
+
+function isProvinceHeader(column) {
+  if (!column) return false
+  return /^provincias?$/i.test(String(column.key || '').trim())
+    || /^provincias?$/i.test(String(column.label || '').trim())
 }
 
 function addTable(children, table) {
-  if (table) children.push(table, new Paragraph({ spacing: { after: 70 } }))
+  if (table) children.push(table)
 }
 
 function detectColumns(items, priority = []) {
@@ -505,11 +597,18 @@ function detectColumns(items, priority = []) {
     }).map((key) => {
       const values = items.map((row) => row?.[key]).filter((value) => String(value ?? '').trim())
       const numeric = values.length && values.every((value) => Number.isFinite(Number(String(value).replace(',', '.'))))
-      return { key, label: humanize(key), type: numeric ? 'number' : 'text', format: numeric ? (value) => fmt(value) : undefined }
+      const dateOnly = /^(fecha|apertura|cierre)$/i.test(key)
+      const initialDate = key === 'FechaInicial'
+      return {
+        key,
+        label: humanize(key),
+        type: numeric ? 'number' : 'text',
+        format: numeric ? (value) => fmt(value) : dateOnly ? reportDateOnly : initialDate ? declarationDate : undefined,
+      }
     })
 }
 
-function importantPoints({ items, tipoLluviasItems, asistenciaItems, dpaTotals, metadata }) {
+function importantPoints({ items, tipoLluviasItems, asistenciaItems, eventosMesItems, dpaTotals, metadata }) {
   const points = []
   const total = sum(tipoLluviasItems, 'NumeroEventos') || sum(items, 'NumeroEventos')
   const types = EVENT_TYPES.map((type) => ({ ...type, total: sum(tipoLluviasItems, type.key) }))
@@ -519,7 +618,7 @@ function importantPoints({ items, tipoLluviasItems, asistenciaItems, dpaTotals, 
     const cantons = Number.isFinite(Number(dpaTotals?.TotalCantones)) ? Number(dpaTotals.TotalCantones) : unique(items, ['Canton', 'CantonNombre'])
     const parishes = Number.isFinite(Number(dpaTotals?.TotalParroquias)) ? Number(dpaTotals.TotalParroquias) : unique(items, ['Parroquia', 'ParroquiaNombre'])
     points.push([
-      ['Desde el 1 de enero de 2026 a las 00:00 hasta la fecha, se han registrado ', false], [`${fmt(total)} eventos adversos por lluvias`, true],
+      [`Desde el ${metadata.startTitle} hasta la fecha, se han registrado `, false], [`${fmt(total)} eventos adversos por lluvias`, true],
       [` afectando a ${fmt(provinces)} provincias, ${fmt(cantons)} cantones y ${fmt(parishes)} parroquias. `, false],
       ['Los eventos más recurrentes corresponden a: ', false],
       [types.map((type) => `${type.label.toLowerCase()} (${pct(type.total / total * 100)})`).join(', ') + '.', true],
@@ -527,8 +626,31 @@ function importantPoints({ items, tipoLluviasItems, asistenciaItems, dpaTotals, 
   }
   const top = items.map((row) => ({ provincia: String(row?.Provincia || '').trim(), impactadas: n(row?.ImpactadasPersonas), eventos: n(row?.NumeroEventos) }))
     .filter((row) => row.provincia && (row.impactadas || row.eventos)).sort((a, b) => b.impactadas - a.impactadas || b.eventos - a.eventos).slice(0, 8)
-  if (top.length) points.push([[`En lo que va del año ${metadata.year}, las provincias con mayor impacto a la población son: `, false], [`${top.map((row) => row.provincia).join(', ')}.`, true]])
-  if (has(items, 'ImpactadasPersonas')) points.push([['En total, los eventos reportados impactaron a ', false], [`${fmt(sum(items, 'ImpactadasPersonas'))} personas.`, true]])
+  if (top.length) points.push([['Durante el período seleccionado, las provincias con mayor impacto a la población son: ', false], [`${top.map((row) => row.provincia).join(', ')}.`, true]])
+  const monthlyRows = eventosMesItems.map((row) => ({
+    month: String(row?.mes || '').trim(),
+    events: n(row?.eventos),
+    people: n(row?.personas_impactadas),
+  })).filter((row) => row.month)
+  const monthlyEvents = monthlyRows.reduce((totalValue, row) => totalValue + row.events, 0)
+  const monthlyPeople = monthlyRows.reduce((totalValue, row) => totalValue + row.people, 0)
+  const topEventMonth = [...monthlyRows].sort((a, b) => b.events - a.events)[0]
+  const topPeopleMonth = [...monthlyRows].sort((a, b) => b.people - a.people)[0]
+  const impactedPeople = monthlyPeople || sum(items, 'ImpactadasPersonas')
+  if (impactedPeople > 0) {
+    const impactPoint = [['En total, los eventos reportados impactaron a ', false], [`${fmt(impactedPeople)} personas`, true]]
+    if (topEventMonth?.events > 0 && monthlyEvents > 0) {
+      impactPoint.push([`, con mayor frecuencia en el mes de ${topEventMonth.month.toLowerCase()} con el `, false])
+      impactPoint.push([pct(topEventMonth.events / monthlyEvents * 100), true])
+    }
+    if (topPeopleMonth?.people > 0 && monthlyPeople > 0) {
+      impactPoint.push([` y en ${topPeopleMonth.month.toLowerCase()} se registró el mayor impacto a la población con `, false])
+      impactPoint.push([`${pct(topPeopleMonth.people / monthlyPeople * 100)}.`, true])
+    } else {
+      impactPoint.push(['.', false])
+    }
+    points.push(impactPoint)
+  }
   const goods = sum(asistenciaItems, 'Total Bienes')
   if (goods > 0) points.push([['La SNGR ha entregado a la población un total de ', false], [`${fmt(goods)} bienes de asistencia humanitaria.`, true]])
   return points
@@ -549,8 +671,43 @@ function indicatorGroups(items, viasItems) {
 function declarationDate(value) {
   const raw = String(value ?? '').trim()
   if (!raw) return ''
-  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw)
-  return Number.isNaN(parsed.getTime()) ? raw : parsed.toLocaleDateString('es-EC', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).replaceAll('.', '')
+  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(raw)
+  const parsed = calendarDate ? null : new Date(raw)
+  if (!calendarDate && Number.isNaN(parsed.getTime())) return raw
+  const year = calendarDate ? calendarDate[1] : String(parsed.getUTCFullYear())
+  const month = calendarDate ? Number(calendarDate[2]) : parsed.getUTCMonth() + 1
+  const day = calendarDate ? Number(calendarDate[3]) : parsed.getUTCDate()
+  const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+  return `${day} ${months[month - 1]} ${year}`
+}
+
+function governmentLevelRank(value) {
+  const order = { nacional: 0, regional: 1, provincial: 2, cantonal: 3 }
+  return order[String(value ?? '').trim().toLowerCase()] ?? 4
+}
+
+function sortDeclarationsByGovernmentLevel(items) {
+  return [...items].sort((left, right) => {
+    const levelDifference = governmentLevelRank(left?.Ambito) - governmentLevelRank(right?.Ambito)
+    if (levelDifference !== 0) return levelDifference
+    return String(left?.FechaInicio ?? '').localeCompare(String(right?.FechaInicio ?? ''), 'es')
+  })
+}
+
+function alertLevelFill(value) {
+  const level = String(value ?? '').trim().toLowerCase()
+  if (level.includes('rojo')) return COLORS.red
+  if (level.includes('naranja')) return COLORS.orange
+  if (level.includes('amarillo')) return COLORS.yellow
+  if (level.includes('verde')) return COLORS.green
+  if (level.includes('azul')) return COLORS.blue
+  return undefined
+}
+
+function alertLevelTextColor(value) {
+  const level = String(value ?? '').trim().toLowerCase()
+  if (!alertLevelFill(value)) return COLORS.black
+  return level.includes('amarillo') || level.includes('verde') ? COLORS.black : COLORS.white
 }
 
 function reportLines(value) {
@@ -714,8 +871,12 @@ function addGenericTable(children, items, priority = [], total = false, options 
   const columns = detectColumns(items, priority)
     .filter((column) => !options.excludeKeys?.includes(column.key))
   const rows = [...items]
+  const totalKeys = new Set(options.totalKeys || [])
   if (total) {
-    rows.push(Object.fromEntries(columns.map((column, index) => [column.key, column.type === 'number' ? sum(items, column.key) : index === 0 ? 'Total general' : ''])))
+    rows.push(Object.fromEntries(columns.map((column, index) => {
+      const shouldTotal = column.type === 'number' && (!totalKeys.size || totalKeys.has(column.key))
+      return [column.key, shouldTotal ? sum(items, column.key) : index === 0 ? 'Total general' : '']
+    })))
   }
   addTable(children, dataTable(columns, rows, {
     ...options,
@@ -858,7 +1019,7 @@ function importantPointsLead(level) {
 }
 
 function hydrometeorologyContent(data) {
-  if (!data?.text) return []
+  if (!data?.text && !data?.detailImage) return []
   const title = sectionTitle('2', 'Situación Hidrometeorológica actual')
 
   if (data.type === 'forecast') {
@@ -881,8 +1042,9 @@ function hydrometeorologyContent(data) {
       spacing: { before: 0, after: 55, line: 225 },
     }))
 
-  const mapSize = fittedImageSize(data.mapAspectRatio, 235, 370)
-  const temperatureTableSize = fittedImageSize(data.tableAspectRatio, 360, 175)
+  const mapSize = fittedImageSize(data.mapAspectRatio, data.detailImage ? 185 : 235, data.detailImage ? 207 : 370)
+  const temperatureTableSize = fittedImageSize(data.tableAspectRatio, data.detailImage ? 170 : 360, data.detailImage ? 85 : 175)
+  const detailImageSize = fittedImageSize(data.detailAspectRatio, 360, 270)
   const noBorders = Object.fromEntries(['top', 'bottom', 'left', 'right', 'insideHorizontal', 'insideVertical']
     .map((side) => [side, { style: BorderStyle.NONE, size: 0, color: COLORS.white }]))
   const mapBorders = Object.fromEntries(['top', 'bottom', 'left', 'right']
@@ -895,9 +1057,22 @@ function hydrometeorologyContent(data) {
       spacing: { before: 0, after: 0 },
     })]
     : [new Paragraph({ children: [textRun('Mapa no disponible', false, { size: 14, color: COLORS.gray })], alignment: AlignmentType.CENTER })]
+  if (data.detailImage && data.tableImage) {
+    mapCellChildren.push(new Paragraph({
+      children: [new ImageRun({ type: 'png', data: data.tableImage, transformation: temperatureTableSize })],
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 50, after: 0 },
+    }))
+  }
 
-  const rightCellChildren = [...textParagraphs]
-  if (data.tableImage) {
+  const rightCellChildren = data.detailImage
+    ? [new Paragraph({
+        children: [new ImageRun({ type: 'png', data: data.detailImage, transformation: detailImageSize })],
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 0, after: 50 },
+      })]
+    : [...textParagraphs]
+  if (data.tableImage && !data.detailImage) {
     rightCellChildren.push(new Paragraph({
       children: [new ImageRun({ type: 'png', data: data.tableImage, transformation: temperatureTableSize })],
       alignment: AlignmentType.CENTER,
@@ -974,7 +1149,7 @@ export async function buildEventosLluviasWord({
     } else {
       REQUIRED_POINTS.forEach((point) => children.push(paragraphFromSegments(point, { bullet: true })))
     }
-    importantPoints({ items, tipoLluviasItems, asistenciaItems, dpaTotals, metadata }).forEach((point) => children.push(paragraphFromSegments(point, { bullet: true })))
+    importantPoints({ items, tipoLluviasItems, asistenciaItems, eventosMesItems, dpaTotals, metadata }).forEach((point) => children.push(paragraphFromSegments(point, { bullet: true })))
   }
 
   if (!report24h) children.push(...hydrometeorologyContent(hydrometeorology))
@@ -990,7 +1165,7 @@ export async function buildEventosLluviasWord({
       { key: '__no__', label: 'No.', format: (_value, _row, index) => index + 1 },
       { key: 'Provincia', label: 'Provincia', type: 'text' }, { key: 'Canton', label: 'Cantón', type: 'text' },
       { key: 'Parroquia', label: 'Parroquia', type: 'text' }, { key: 'Sector', label: 'Sector', type: 'text' },
-      { key: 'CuerpoHidrico', label: 'Nombre de cuerpo hídrico', type: 'text' }, { key: 'FechaNovedad', label: 'Fecha de incremento de nivel' },
+      { key: 'CuerpoHidrico', label: 'Nombre del cuerpo hídrico', type: 'text' }, { key: 'FechaNovedad', label: 'Fecha de incremento del nivel', format: reportDateSpanishLong },
     ]
     if (waterBodiesOverflowed.length) {
       children.push(subsectionTitle(`${fmt(waterBodiesOverflowed.length)} CUERPOS HÍDRICOS DESBORDADOS`, COLORS.red))
@@ -1003,12 +1178,32 @@ export async function buildEventosLluviasWord({
     children.push(sourceLine(metadata))
   }
 
+  const eventTypeColumns = EVENT_TYPES.filter((type) => has(tipoLluviasItems, type.key) && sum(tipoLluviasItems, type.key) !== 0)
+  const totalEventCount = sum(tipoLluviasItems, 'NumeroEventos')
+  const maxProvinceEventCount = Math.max(1, ...tipoLluviasItems.map((row) => n(row?.NumeroEventos)))
+  const maxEventTypeTotal = Math.max(1, ...eventTypeColumns.map((type) => sum(tipoLluviasItems, type.key)))
+  const maxEventTypePercentage = totalEventCount ? maxEventTypeTotal / totalEventCount * 100 : 0
+  const percentageEdgeFill = (_value, row) => row?.__isPercentage__ ? COLORS.navy : undefined
+  const percentageEdgeColor = (_value, row) => row?.__isPercentage__ ? COLORS.white : undefined
   const eventColumns = [
-    { key: '__no__', label: 'No.', format: (_value, _row, index) => index + 1 },
-    { key: 'Provincia', label: 'Provincia', type: 'text' },
-    { key: 'NumeroEventos', label: 'Nro. de eventos adversos', type: 'number', format: fmtInteger },
-    ...EVENT_TYPES.filter((type) => has(tipoLluviasItems, type.key) && sum(tipoLluviasItems, type.key) !== 0)
-      .map((type) => ({ ...type, type: 'number', format: fmtInteger })),
+    {
+      key: '__no__', label: 'No.', horizontal: true,
+      format: (_value, row, index) => row?.__isTotal__ || row?.__isPercentage__ ? '' : index + 1,
+      fill: percentageEdgeFill, color: percentageEdgeColor,
+    },
+    { key: 'Provincia', label: 'Provincia', type: 'text', fill: percentageEdgeFill, color: percentageEdgeColor },
+    ...eventTypeColumns.map((type) => ({
+      ...type,
+      type: 'number',
+      format: (value, row) => row?.__isPercentage__ ? pct(value) : fmtInteger(value),
+      fill: (value, row) => row?.__isPercentage__ ? percentageHeatColor(value, maxEventTypePercentage) : undefined,
+    })),
+    {
+      key: '__total__', label: 'Total', type: 'number', horizontal: true,
+      format: (value, row) => row?.__isPercentage__ ? pct(value) : fmtInteger(value),
+      fill: (value, row) => row?.__isPercentage__ ? COLORS.navy : percentageHeatColor(value, maxProvinceEventCount),
+      color: percentageEdgeColor,
+    },
   ]
   if (tipoLluviasItems.length && sum(tipoLluviasItems, 'NumeroEventos')) {
     children.push(sectionTitle('3', 'Eventos Adversos y Afectaciones - Resumen'))
@@ -1016,9 +1211,24 @@ export async function buildEventosLluviasWord({
       [`Desde el ${metadata.startNumeric} hasta el ${metadata.endNumeric}, por lluvias se registraron un total de `, false],
       [`${fmt(sum(tipoLluviasItems, 'NumeroEventos'))} eventos adversos, `, true], ['distribuidos de la siguiente manera:', false],
     ]))
-    const eventRows = [...tipoLluviasItems].sort((a, b) => n(b?.NumeroEventos) - n(a?.NumeroEventos))
-    eventRows.push(Object.fromEntries(eventColumns.map((column, index) => [column.key, index === 1 ? 'Total general' : index > 1 ? sum(tipoLluviasItems, column.key) : ''])))
-    addTable(children, dataTable(eventColumns, eventRows, { totalRowIndex: eventRows.length - 1, fontSize: eventColumns.length > 12 ? 9 : 11 }))
+    const eventRows = [...tipoLluviasItems]
+      .sort((a, b) => n(b?.NumeroEventos) - n(a?.NumeroEventos))
+      .map((row) => ({ ...row, __total__: n(row?.NumeroEventos) }))
+    const totalRow = { __isTotal__: true, Provincia: 'Total general', __total__: totalEventCount }
+    const percentageRow = { __isPercentage__: true, Provincia: 'Porcentaje', __total__: 100 }
+    eventTypeColumns.forEach((type) => {
+      const eventTypeTotal = sum(tipoLluviasItems, type.key)
+      totalRow[type.key] = eventTypeTotal
+      percentageRow[type.key] = totalEventCount ? eventTypeTotal / totalEventCount * 100 : 0
+    })
+    eventRows.push(totalRow, percentageRow)
+    addTable(children, dataTable(eventColumns, eventRows, {
+      totalRowIndex: eventRows.length - 2,
+      fontSize: eventColumns.length > 12 ? 12: 11,
+      headerFontSize: eventColumns.length > 12 ? 9 : 11,
+      verticalHeaders: verticalDataHeader,
+      headerMargins: { top: 35, bottom: 35, left: 25, right: 25 },
+    }))
     children.push(sourceLine(metadata))
   }
 
@@ -1078,46 +1288,98 @@ export async function buildEventosLluviasWord({
         alignment: AlignmentType.CENTER,
         spacing: { after: 80 },
       }))
-      addTable(children, dataTable([
-        { key: 'Provincia', label: 'Provincia', type: 'text' },
-        { key: 'NumeroEventos', label: 'Nro. de eventos', type: 'number', format: fmt },
-        { key: 'ImpactadasPersonas', label: 'Personas impactadas', type: 'number', format: fmt },
-      ], [...items].sort((a, b) => n(b?.ImpactadasPersonas) - n(a?.ImpactadasPersonas)), { widths: [4875, 2437, 2438] }))
       children.push(sourceLine(metadata))
     }
   }
 
   if (!report24h && eventosMesItems.length) {
-    const monthRows = eventosMesItems.map((row) => ({ month: row?.mes, events: n(row?.eventos), people: n(row?.personas_impactadas) }))
+    const monthRows = eventosMesItems.map((row) => ({
+      month: row?.mes,
+      events: Math.round(n(row?.eventos)),
+      people: Math.round(n(row?.personas_impactadas)),
+    }))
     const totalEvents = monthRows.reduce((acc, row) => acc + row.events, 0)
     const totalPeople = monthRows.reduce((acc, row) => acc + row.people, 0)
+    const maxMonthlyEvents = Math.max(0, ...monthRows.map((row) => totalEvents ? row.events / totalEvents * 100 : 0))
+    const maxMonthlyPeople = Math.max(0, ...monthRows.map((row) => totalPeople ? row.people / totalPeople * 100 : 0))
     children.push(subsectionTitle('Recurrencia de eventos vs personas impactadas por mes', COLORS.gray))
     const monthlyChart = chartImage(monthRows.map((row) => ({ ...row, label: row.month })), 'Recurrencia de eventos vs personas impactadas por mes', 'events', 'people', 'Nro. de eventos', 'Personas Impactadas')
-    if (monthlyChart) children.push(new Paragraph({
-      children: [new ImageRun({ type: 'png', data: monthlyChart, transformation: { width: 650, height: 325 } })],
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 80 },
-    }))
     const columns = [
-      { key: 'month', label: 'Mes', type: 'text' }, { key: 'events', label: 'Número de eventos', type: 'number', format: fmt },
-      { key: 'people', label: 'Personas impactadas', type: 'number', format: fmt },
-      { key: 'eventPct', label: '% recurrencia eventos', format: (_v, row) => pct(totalEvents ? row.events / totalEvents * 100 : 0) },
-      { key: 'peoplePct', label: '% personas impactadas', format: (_v, row) => pct(totalPeople ? row.people / totalPeople * 100 : 0) },
+      { key: 'month', label: 'Mes', type: 'text' }, { key: 'events', label: 'Número de eventos', type: 'number', integer: true },
+      { key: 'people', label: 'Personas impactadas', type: 'number', integer: true },
+      {
+        key: 'eventPct', label: '% recurrencia eventos',
+        format: (_v, row) => pct(totalEvents ? row.events / totalEvents * 100 : 0),
+        fill: (_v, row) => percentageHeatColor(totalEvents ? row.events / totalEvents * 100 : 0, maxMonthlyEvents),
+      },
+      {
+        key: 'peoplePct', label: '% personas impactadas',
+        format: (_v, row) => pct(totalPeople ? row.people / totalPeople * 100 : 0),
+        fill: (_v, row) => percentageHeatColor(totalPeople ? row.people / totalPeople * 100 : 0, maxMonthlyPeople),
+      },
     ]
-    monthRows.push({ month: 'Total general', events: totalEvents, people: totalPeople, eventPct: '100%', peoplePct: '100%' })
-    addTable(children, dataTable(columns, monthRows, { totalRowIndex: monthRows.length - 1, fontSize: 12 }))
+    monthRows.push({ month: 'Total', events: totalEvents, people: totalPeople, eventPct: '100%', peoplePct: '100%' })
+    const tableWidth = 4400
+    const gapWidth = 200
+    const chartWidth = CONTENT_WIDTH_DXA - tableWidth - gapWidth
+    const monthlyTable = dataTable(columns, monthRows, {
+      tableWidth,
+      totalRowIndex: monthRows.length - 1,
+      fontSize: 12,
+      headerFontSize: 12,
+      headerMargins: { top: 35, bottom: 35, left: 20, right: 20 },
+      cellMargins: { top: 35, bottom: 35, left: 20, right: 20 },
+    })
+    const monthlyChartContent = monthlyChart
+      ? [new Paragraph({
+          children: [new ImageRun({ type: 'png', data: monthlyChart, transformation: { width: 335, height: 168 } })],
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 0, after: 0 },
+        })]
+      : [new Paragraph({ children: [textRun('Gráfica no disponible', false, { size: 12, color: COLORS.gray })], alignment: AlignmentType.CENTER })]
+    children.push(new Table({
+      rows: [new TableRow({
+        cantSplit: true,
+        children: [
+          new TableCell({
+            children: [monthlyTable],
+            width: { size: tableWidth, type: WidthType.DXA },
+            verticalAlign: VerticalAlign.TOP,
+            borders: BORDERLESS,
+            margins: { top: 0, bottom: 0, left: 0, right: 0 },
+          }),
+          new TableCell({
+            children: [new Paragraph({ spacing: { before: 0, after: 0 } })],
+            width: { size: gapWidth, type: WidthType.DXA },
+            borders: BORDERLESS,
+            margins: { top: 0, bottom: 0, left: 0, right: 0 },
+          }),
+          new TableCell({
+            children: monthlyChartContent,
+            width: { size: chartWidth, type: WidthType.DXA },
+            verticalAlign: VerticalAlign.TOP,
+            borders: BORDERLESS,
+            margins: { top: 0, bottom: 0, left: 0, right: 0 },
+          }),
+        ],
+      })],
+      width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
+      columnWidths: [tableWidth, gapWidth, chartWidth],
+      layout: TableLayoutType.FIXED,
+      borders: BORDERLESS,
+    }))
     children.push(sourceLine(metadata))
   }
 
-  const addShelter = (number, title, shelterItems, priority, action) => {
+  const addShelter = (number, title, shelterItems, priority, action, totalKeys = []) => {
     if (!shelterItems.length) return
     children.push(sectionTitle(number, title))
     children.push(paragraphFromSegments([['Desde el ', false], [`${metadata.startTitle}, `, true], [`se han ${action} `, false], [`${fmt(shelterItems.length)} alojamientos temporales.`, true]]))
-    addGenericTable(children, shelterItems, priority)
+    addGenericTable(children, shelterItems, priority, totalKeys.length > 0, { totalKeys })
     children.push(sourceLine(metadata))
   }
   if (!report24h) {
-    addShelter('5.1', 'Alojamientos Temporales Abiertos', alojamientosItems, ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura'], 'activado')
+    addShelter('5.1', 'Alojamientos Temporales Abiertos', alojamientosItems, ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura', 'Familias', 'Personas'], 'activado', ['Familias', 'Personas'])
     addShelter('5.2', 'Alojamientos Temporales Cerrados', alojamientosCerradosItems, ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura', 'Cierre'], 'cerrado')
   }
 
@@ -1146,16 +1408,27 @@ export async function buildEventosLluviasWord({
     const alertColumns = [
       { key: 'Ambito', label: 'Nivel de gobierno', type: 'text' }, { key: 'Provincia', label: 'Provincia', type: 'text' },
       { key: 'Canton', label: 'Cantón', type: 'text' }, { key: 'Parroquia', label: 'Parroquia', type: 'text' },
-      { key: 'FechaInicio', label: 'Fecha declaratoria', format: declarationDate }, { key: 'NivelAlerta', label: 'Nivel de alerta' },
+      { key: 'FechaInicio', label: 'Fecha declaratoria', format: declarationDate },
+      {
+        key: 'NivelAlerta', label: 'Nivel de alerta', bold: true,
+        fill: alertLevelFill,
+        color: alertLevelTextColor,
+      },
       { key: 'Observacion', label: 'Descripción', type: 'text' },
     ]
     if (alertDeclarations.length) {
       children.push(subsectionTitle('Declaratorias de niveles de alertas en todo el país:'))
-      addTable(children, dataTable(alertColumns, alertDeclarations, { fontSize: 10 }))
+      addTable(children, dataTable(alertColumns, sortDeclarationsByGovernmentLevel(alertDeclarations), {
+        fontSize: 10,
+        widths: [600, 750, 650, 650, 800, 600, 5700],
+      }))
     }
     if (emergencyDeclarations.length) {
       children.push(subsectionTitle('Declaratorias de emergencia en todo el país:'))
-      addTable(children, dataTable(alertColumns.filter((column) => column.key !== 'NivelAlerta'), emergencyDeclarations, { fontSize: 10 }))
+      addTable(children, dataTable(alertColumns.filter((column) => column.key !== 'NivelAlerta'), emergencyDeclarations, {
+        fontSize: 10,
+        widths: [550, 700, 650, 550, 800, 6500],
+      }))
     }
     children.push(paragraphFromSegments([['Además, mediante ', false], ['Decreto ejecutivo Nro. 485, firmado el 31 de agosto de 2026, por el presidente del Ecuador Daniel Noboa Azin, se declara ', true], ['como prioridad nacional la continuidad y el fortalecimiento de las acciones de prevención, preparación, respuesta y recuperación frente a los posibles efectos del fenómeno El Niño.', false]]))
     const national = uniqueActiveCoeRows(nationalCoeItems, ['TipoCOE'])[0]
@@ -1166,16 +1439,41 @@ export async function buildEventosLluviasWord({
     if (national) children.push(paragraphFromSegments([[`COE Nacional activo desde el ${declarationDate(national.FechaInicial)}.`, true]], { bullet: true }))
     if (provincial.length) {
       children.push(paragraphFromSegments([[`${fmt(provincial.length)} COE provinciales:`, true]], { bullet: true }))
-      addGenericTable(children, provincial, ['Provincia', 'FechaInicial', 'Estado'])
+      addTable(children, dataTable([
+        { key: '__no__', label: 'Nro.', format: (_value, _row, index) => index + 1 },
+        { key: 'Provincia', label: 'Provincia', type: 'text' },
+        { key: 'FechaInicial', label: 'Fecha de activación', format: declarationDate },
+        { key: 'Estado', label: 'Estado', type: 'text' },
+      ], provincial, {
+        widths: [500, 1900, 1600, 1200], tableWidth: 5200, alignment: AlignmentType.CENTER, fontSize: 11,
+      }))
     }
     if (municipal.totalActive) {
       children.push(paragraphFromSegments([[`A nivel nacional se registran ${fmt(municipal.totalActive)} COE cantonales activos de ${fmt(municipal.totalCantons)} cantones (${municipal.globalPercentage}%).`, true]], { bullet: true }))
       const municipalRows = [...municipal.rows, { Provincia: 'Total general', TotalCantones: municipal.totalCantons, CantonesActivos: municipal.totalActive, PorcentajeActivacion: municipal.globalPercentage }]
-      addGenericTable(children, municipalRows, ['Provincia', 'TotalCantones', 'CantonesActivos', 'PorcentajeActivacion'])
+      addTable(children, dataTable([
+        { key: 'Provincia', label: 'Provincia', type: 'text' },
+        { key: 'TotalCantones', label: 'Total de Cantones', type: 'number', format: fmtInteger },
+        { key: 'CantonesActivos', label: 'Nro. de COE Cantonales Activos', type: 'number', format: fmtInteger },
+        { key: 'PorcentajeActivacion', label: '% de COE cantonales activos', format: (value) => `${fmtInteger(value)}%` },
+      ], municipalRows, {
+        widths: [1500, 1300, 1900, 1700], tableWidth: 6400, alignment: AlignmentType.CENTER,
+        totalRowIndex: municipalRows.length - 1, fontSize: 11,
+      }))
     }
     if (parish.length) {
       children.push(paragraphFromSegments([[`${fmt(parish.length)} COE parroquiales:`, true]], { bullet: true }))
-      addGenericTable(children, parish, ['Provincia', 'Canton', 'Parroquia', 'FechaInicial', 'Estado'])
+      addTable(children, dataTable([
+        { key: '__no__', label: 'Nro.', format: (_value, _row, index) => index + 1 },
+        { key: 'Provincia', label: 'Provincia', type: 'text' },
+        { key: 'Canton', label: 'Cantón', type: 'text' },
+        { key: 'Parroquia', label: 'Parroquia', type: 'text' },
+        { key: 'FechaInicial', label: 'Fecha de activación', format: declarationDate },
+        { key: 'Estado', label: 'Estado', type: 'text' },
+      ], parish, {
+        widths: [450, 1200, 1200, 1400, 1500, 1100], tableWidth: 6850,
+        alignment: AlignmentType.CENTER, fontSize: 11,
+      }))
     }
     children.push(sourceLine(metadata))
   }
@@ -1193,10 +1491,25 @@ export async function buildEventosLluviasWord({
         activeZone = zone
       }
       children.push(paragraphFromSegments([[`${String(item?.Ubicacion || 'Ubicación no registrada').trim()}.`, true]], { bullet: true, keepNext: true }))
+      const eventMeta = highImpactEventMetaItems(item)
+      const eventMetaColors = {
+        type: { fill: 'FFF0E4', color: '9A3D00' },
+        datetime: { fill: 'E7F2FC', color: '073B70' },
+      }
+      if (eventMeta.length) children.push(paragraphFromSegments(eventMeta.flatMap((meta, index) => [
+        ...(index ? [{ text: '  ', size: 14 }] : []),
+        {
+          text: `  ${meta.value}  `,
+          bold: true,
+          size: 14,
+          color: eventMetaColors[meta.kind].color,
+          shading: { type: ShadingType.CLEAR, fill: eventMetaColors[meta.kind].fill, color: 'auto' },
+        },
+      ]), { before: 0, after: 80, keepNext: true }))
       if (String(item?.Antecedentes ?? '').trim()) children.push(paragraphFromSegments([[item.Antecedentes, false]]))
       if (String(item?.SituacionActual ?? '').trim()) children.push(paragraphFromSegments([[item.SituacionActual, false]]))
       reportLines(item?.Afectaciones).forEach((line) => children.push(paragraphFromSegments([[`${affectationText(line)}.`, true]], { bullet: true })))
-      reportLines(item?.CoordinacionYRespuesta).forEach((line) => children.push(paragraphFromSegments([[line, false]])))
+      cleanHighImpactResponseLines(item?.CoordinacionYRespuesta).forEach((line) => children.push(paragraphFromSegments([[line, false]])))
     })
     children.push(sourceLine(metadata))
   }
@@ -1241,10 +1554,22 @@ export async function exportEventosLluviasWord(options) {
   const document = await buildEventosLluviasWord(options)
   const blob = await Packer.toBlob(document)
   const suffix = options?.provinciaId ? `provincia_${options.provinciaId}` : 'todas'
+  const generatedAt = new Date()
+  const downloadStamp = [
+    generatedAt.getFullYear(),
+    String(generatedAt.getMonth() + 1).padStart(2, '0'),
+    String(generatedAt.getDate()).padStart(2, '0'),
+    '_',
+    String(generatedAt.getHours()).padStart(2, '0'),
+    String(generatedAt.getMinutes()).padStart(2, '0'),
+    String(generatedAt.getSeconds()).padStart(2, '0'),
+  ].join('')
   const url = URL.createObjectURL(blob)
   const anchor = window.document.createElement('a')
   anchor.href = url
-  anchor.download = options?.report24h ? 'reporte_24_horas_editable.docx' : `sitrep_lluvias_editable_${suffix}.docx`
+  anchor.download = options?.report24h
+    ? `reporte_24_horas_editable_${downloadStamp}.docx`
+    : `sitrep_lluvias_editable_${suffix}_${downloadStamp}.docx`
   window.document.body.appendChild(anchor)
   anchor.click()
   anchor.remove()

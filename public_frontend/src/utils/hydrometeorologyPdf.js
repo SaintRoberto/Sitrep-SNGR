@@ -38,6 +38,15 @@ function canvasToData(canvas, box) {
   return { image: result.toDataURL('image/png'), aspectRatio: width / height, canvas: result }
 }
 
+function relativeCrop(canvas, { left, top, right, bottom }) {
+  return canvasToData(canvas, {
+    x: canvas.width * left,
+    y: canvas.height * top,
+    width: canvas.width * (right - left),
+    height: canvas.height * (bottom - top),
+  })
+}
+
 function positionedText(viewport, textContent) {
   const scale = viewport.scale || 1
   return textContent.items
@@ -302,6 +311,35 @@ async function processWarning(pdf) {
   }
 }
 
+async function processGraphicWarning(pdf, metadata, filename) {
+  if (pdf.numPages < 2) throw new Error('La advertencia meteorológica gráfica debe contener al menos dos páginas.')
+  const [coverPage, detailPage] = await Promise.all([pdf.getPage(1), pdf.getPage(2)])
+  const [cover, detail] = await Promise.all([readPage(coverPage, 2), readPage(detailPage, 2)])
+  const map = relativeCrop(cover.canvas, { left: 0.045, top: 0.315, right: 0.69, bottom: 0.825 })
+  const mapContext = map.canvas.getContext('2d')
+  mapContext.fillStyle = '#FFFFFF'
+  mapContext.fillRect(map.canvas.width * 0.574, map.canvas.height * 0.667, map.canvas.width, map.canvas.height)
+  map.image = map.canvas.toDataURL('image/png')
+  const table = relativeCrop(cover.canvas, { left: 0.415, top: 0.655, right: 0.975, bottom: 0.875 })
+  const detailImage = relativeCrop(detail.canvas, { left: 0.025, top: 0.19, right: 0.975, bottom: 0.714 })
+  const identity = `${filename} ${metadata?.info?.Title || ''}`
+  const number = identity.match(/(?:advertencia[^\d]*)?(\d{1,4})/i)?.[1]
+  return {
+    type: 'warning',
+    format: 'graphic',
+    label: number ? `Advertencia meteorológica Nro. ${number}` : 'Advertencia meteorológica',
+    text: number
+      ? `Advertencia meteorológica Nro. ${number}. Detalle de posibles afectaciones y zonas afectadas.`
+      : 'Advertencia meteorológica. Detalle de posibles afectaciones y zonas afectadas.',
+    mapImage: map.image,
+    mapAspectRatio: map.aspectRatio,
+    detailImage: detailImage.image,
+    detailAspectRatio: detailImage.aspectRatio,
+    tableImage: table.image,
+    tableAspectRatio: table.aspectRatio,
+  }
+}
+
 async function processForecast(pdf, metadata, filename) {
   if (pdf.numPages < 4) throw new Error('El pronóstico por localidades debe contener las cuatro regiones.')
   const maps = []
@@ -343,6 +381,10 @@ export async function processHydrometeorologyPdf(file) {
     const metadata = await pdf.getMetadata().catch(() => ({ info: {} }))
     if (/Bolet[ií]n\s+Meteorol[oó]gico|Estatus\s*:\s*ADVERTENCIA|FEN[ÓO]MENO\s*:/i.test(firstText)) {
       return { ...(await processWarning(pdf)), filename: file.name }
+    }
+    const documentIdentity = `${file.name} ${metadata?.info?.Title || ''}`
+    if (firstText.length < 80 && /advertencia/i.test(documentIdentity)) {
+      return { ...(await processGraphicWarning(pdf, metadata, file.name)), filename: file.name }
     }
     if (/PRON[ÓO]STICO\s+POR\s+LOCALIDADES/i.test(firstText) || (pdf.numPages >= 4 && firstText.length < 80)) {
       return { ...(await processForecast(pdf, metadata, file.name)), filename: file.name }

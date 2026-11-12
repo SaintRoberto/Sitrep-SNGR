@@ -466,9 +466,14 @@ function drawSector(doc, centerX, centerY, radius, start, end, color, explode = 
 function renderEventDonut(doc, rows) {
   sectionBand(doc, 105, 69, 79, 'Cantidad de eventos adversos por lluvias', true)
   const ranked = EVENT_TYPES.map(([key, label]) => ({ label, value: sum(rows, key) }))
-    .filter((item) => item.value > 0).sort((a, b) => b.value - a.value)
-  const total = ranked.reduce((acc, item) => acc + item.value, 0)
-  if (!total) {
+    .filter((item) => item.value > 0)
+  const reportedTotal = sum(rows, 'NumeroEventos')
+  const categorizedTotal = ranked.reduce((total, item) => total + item.value, 0)
+  if (reportedTotal > categorizedTotal) ranked.push({ label: 'Otros eventos', value: reportedTotal - categorizedTotal })
+  ranked.sort((a, b) => b.value - a.value)
+  const sliceTotal = ranked.reduce((total, item) => total + item.value, 0)
+  const displayTotal = reportedTotal || sliceTotal
+  if (!sliceTotal) {
     font(doc, 'normal', 8, COLORS.gray); doc.text('Sin datos reportados', 145, 108, { align: 'center' })
     return
   }
@@ -476,7 +481,7 @@ function renderEventDonut(doc, rows) {
   const slices = []
   let angle = -Math.PI / 2
   ranked.forEach((item) => {
-    const end = angle + item.value / total * Math.PI * 2
+    const end = angle + item.value / sliceTotal * Math.PI * 2
     slices.push({ ...item, start: angle, end, middle: (angle + end) / 2 })
     angle = end
   })
@@ -488,7 +493,7 @@ function renderEventDonut(doc, rows) {
     drawSector(doc, centerX, centerY, radius, slice.start, slice.end, palette[index % palette.length], index < 2 ? 1.05 : 0)
   })
   doc.setFillColor(...COLORS.white); doc.circle(centerX, centerY, 10.3, 'F')
-  font(doc, 'bold', 14.5, COLORS.black); doc.text(fmt(total), centerX, centerY - 1.2, { align: 'center' })
+  font(doc, 'bold', 14.5, COLORS.black); doc.text(fmt(displayTotal), centerX, centerY - 1.2, { align: 'center' })
   font(doc, 'bold', 9.2, COLORS.navy); doc.text(['eventos', 'adversos'], centerX, centerY + 3.3, { align: 'center' })
 
   slices.slice(0, 2).forEach((slice) => {
@@ -542,6 +547,7 @@ function renderProvinceTable(doc, items) {
     alternateRowStyles: { fillColor: [241, 246, 252] },
     columnStyles: { 0: { halign: 'left', cellWidth: 22 }, 1: { cellWidth: 11 }, 2: { cellWidth: 16.75 }, 3: { cellWidth: 16.75 }, 4: { cellWidth: 16.75 }, 5: { cellWidth: 16.75 } },
     didParseCell: ({ cell, row, column, section }) => {
+      if (section === 'head' && column.index === 0) cell.styles.halign = 'center'
       if (section !== 'body') return
       if (row.index === body.length - 1) {
         cell.styles.fillColor = COLORS.blue; cell.styles.textColor = COLORS.white; cell.styles.fontStyle = 'bold'

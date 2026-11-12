@@ -8,12 +8,14 @@ import { exportReport24InfographicPdf } from './utils/report24InfographicPdf.js'
 import { exportWaterBodiesPdf } from './utils/waterBodiesPdf.js'
 import { processHydrometeorologyPdf } from './utils/hydrometeorologyPdf.js'
 import { buildMunicipalCoeSummary, coeActivationClass, uniqueActiveCoeRows } from './utils/coeConfig.js'
+import { cleanHighImpactResponse, highImpactEventMetaItems } from './utils/highImpactEvents.js'
 import {
   buildProvinceImpactMap,
   ECUADOR_PROVINCES,
   impactCellClass,
   impactColor,
   impactLegend,
+  normalizeProvinceName,
   provinceImpactValue,
   provincePathData,
   shortProvinceLabel,
@@ -53,11 +55,11 @@ const ENDPOINTS = {
 const WATER_BODY_COLS = [
   ['__no__', 'No.'],
   ['Provincia', 'Provincia'],
-  ['Canton', 'Canton'],
+  ['Canton', 'Cantón'],
   ['Parroquia', 'Parroquia'],
   ['Sector', 'Sector'],
-  ['CuerpoHidrico', 'Nombre de cuerpo hidrico'],
-  ['FechaNovedad', 'Fecha de incremento de nivel'],
+  ['CuerpoHidrico', 'Nombre del cuerpo hídrico'],
+  ['FechaNovedad', 'Fecha de incremento del nivel'],
 ]
 
 const ALERT_DECLARATION_COLS = [
@@ -80,12 +82,12 @@ const EMERGENCY_DECLARATION_COLS = [
 ]
 
 const COE_PROVINCIAL_COLS = [
-  ['__no__', 'Nro.'], ['Provincia', 'Provincia'], ['FechaInicial', 'Fecha de Activación'], ['Estado', 'Estado'],
+  ['__no__', 'Nro.'], ['Provincia', 'Provincia'], ['FechaInicial', 'Fecha de activación'], ['Estado', 'Estado'],
 ]
 
 const COPAE_COLS = [
   ['__no__', 'Nro.'], ['Provincia', 'Provincia'], ['Canton', 'Cantón'], ['Parroquia', 'Parroquia'],
-  ['FechaInicial', 'Fecha de Activación'], ['Estado', 'Estado'],
+  ['FechaInicial', 'Fecha de activación'], ['Estado', 'Estado'],
 ]
 
 const TIPO_LABELS = {
@@ -228,6 +230,40 @@ const MESES_ORDENADOS = [
 const MES_RANK = new Map(MESES_ORDENADOS.map((mes, idx) => [mes.toLowerCase(), idx]))
 const ASSISTANCE_HIDDEN_KEYS = new Set(['ProvinciaID'])
 
+const PROVINCE_FIELD_KEYS = ['Provincia', 'Provincias', 'provincia', 'provincias']
+
+function rowProvince(row) {
+  if (!row || typeof row !== 'object') return ''
+  for (const key of PROVINCE_FIELD_KEYS) {
+    const value = String(row[key] ?? '').trim()
+    if (value) return value
+  }
+  return ''
+}
+
+function filterRowsByProvince(rows, selectedProvince) {
+  const sourceRows = Array.isArray(rows) ? rows : []
+  const selectedKey = normalizeProvinceName(selectedProvince)
+  if (!selectedKey) return sourceRows
+  return sourceRows.filter((row) => {
+    const value = rowProvince(row)
+    if (!value) return false
+    return value
+      .split(/[,;/|]+/)
+      .some((province) => normalizeProvinceName(province) === selectedKey)
+  })
+}
+
+function filterApiDataByProvince(data, selectedProvince) {
+  if (!data || typeof data !== 'object') return data
+  return { ...data, items: filterRowsByProvince(data.items, selectedProvince) }
+}
+
+function provincialDpaTotals(selectedProvince, filteredMainItems) {
+  if (!selectedProvince) return null
+  return { TotalProvincias: filteredMainItems.length ? 1 : 0 }
+}
+
 function n(v) {
   const x = Number(String(v ?? '').replace(',', '.'))
   return Number.isFinite(x) ? x : 0
@@ -275,6 +311,22 @@ function withTotalsRow(columns, rows) {
   return [...rows, totalRow]
 }
 
+function withSelectedTotalsRow(columns, rows, totalKeys) {
+  if (!rows.length) return rows
+  const selectedKeys = new Set(totalKeys)
+  const totalRow = { __isTotal__: true }
+  columns.forEach(([key]) => { totalRow[key] = '' })
+  const labelKey = columns.find(([key]) => key === 'Provincia')?.[0]
+    || columns.find(([key]) => key !== '__no__')?.[0]
+  if (labelKey) totalRow[labelKey] = 'Total general'
+  selectedKeys.forEach((key) => {
+    if (columns.some(([columnKey]) => columnKey === key)) {
+      totalRow[key] = rows.reduce((total, row) => total + n(row?.[key]), 0)
+    }
+  })
+  return [...rows, totalRow]
+}
+
 function formatInt(v) {
   return Math.round(v).toLocaleString('es-EC')
 }
@@ -295,6 +347,22 @@ function getPctClass(v, maximum) {
   if (percentageOfMaximum < 10) return 'pct-mid'
   if (percentageOfMaximum < 30) return 'pct-yellow'
   return 'pct-high'
+}
+
+function section3CellClass(row, key, maxProvinceEvents, maxEventTypePercentage) {
+  if (row.__isTotal__) return ''
+  if (row.__isPercentage__) {
+    if (['__no__', 'Provincia', '__total__'].includes(key)) return 'section3-percentage-edge'
+    return getPctClass(row[key], maxEventTypePercentage)
+  }
+  return key === '__total__' ? getPctClass(row[key], maxProvinceEvents) : ''
+}
+
+function section3CellValue(row, key) {
+  const value = row?.[key]
+  if (row.__isPercentage__ && !['__no__', 'Provincia'].includes(key)) return formatPctText(value)
+  if (!['__no__', 'Provincia'].includes(key)) return n(value) === 0 ? '-' : formatInt(value)
+  return value ?? ''
 }
 
 function prettifyLabel(key) {
@@ -570,40 +638,66 @@ function formatCardValue(key, value) {
 function formatDateYmd(value) {
   const raw = String(value ?? '').trim()
   if (!raw) return ''
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
-
-  const parsed = new Date(raw)
+  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(raw)
+  if (calendarDate) {
+    const date = `${calendarDate[1]}-${calendarDate[2]}-${calendarDate[3]}`
+    return calendarDate[4]
+      ? `${date} ${calendarDate[4]}:${calendarDate[5]}:${calendarDate[6] || '00'}`
+      : date
+  }
+  const parsed = value instanceof Date ? value : new Date(raw)
   if (Number.isNaN(parsed.getTime())) return raw
-
   const y = parsed.getUTCFullYear()
   const m = String(parsed.getUTCMonth() + 1).padStart(2, '0')
   const d = String(parsed.getUTCDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
+  const date = `${y}-${m}-${d}`
+  if (!(value instanceof Date) && !/\d{1,2}:\d{2}/.test(raw)) return date
+  const hours = String(parsed.getUTCHours()).padStart(2, '0')
+  const minutes = String(parsed.getUTCMinutes()).padStart(2, '0')
+  const seconds = String(parsed.getUTCSeconds()).padStart(2, '0')
+  return `${date} ${hours}:${minutes}:${seconds}`
+}
+
+function formatDateOnlyYmd(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(raw)
+  if (calendarDate) return `${calendarDate[1]}-${calendarDate[2]}-${calendarDate[3]}`
+  const parsed = value instanceof Date ? value : new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return raw
+  return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, '0')}-${String(parsed.getUTCDate()).padStart(2, '0')}`
+}
+
+function formatDateSpanishLong(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(raw)
+  const parsed = calendarDate ? null : new Date(raw)
+  if (!calendarDate && Number.isNaN(parsed.getTime())) return raw
+  const year = calendarDate ? calendarDate[1] : String(parsed.getUTCFullYear())
+  const month = calendarDate ? Number(calendarDate[2]) : parsed.getUTCMonth() + 1
+  const day = calendarDate ? calendarDate[3] : String(parsed.getUTCDate()).padStart(2, '0')
+  const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+  return `${day} de ${months[month - 1]} de ${year}`
 }
 
 function formatTableCellValue(key, value) {
-  if (key === 'Apertura' || key === 'Cierre') return formatDateYmd(value)
-  if (key === 'FechaNovedad') {
-    const raw = String(value ?? '').trim()
-    if (!raw) return ''
-    const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw)
-    if (Number.isNaN(parsed.getTime())) return raw
-    return parsed.toLocaleDateString('es-EC', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
-      timeZone: 'UTC',
-    })
-  }
+  if (/^(fecha|apertura|cierre)$/i.test(String(key))) return formatDateOnlyYmd(value)
+  if (/fecha|apertura|cierre/i.test(String(key))) return formatDateYmd(value)
   return value
 }
 
 function formatDeclarationDate(value) {
   const raw = String(value ?? '').trim()
   if (!raw) return ''
-  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw)
-  if (Number.isNaN(parsed.getTime())) return raw
-  return parsed.toLocaleDateString('es-EC', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).replaceAll('.', '')
+  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(raw)
+  const parsed = calendarDate ? null : new Date(raw)
+  if (!calendarDate && Number.isNaN(parsed.getTime())) return raw
+  const year = calendarDate ? calendarDate[1] : String(parsed.getUTCFullYear())
+  const month = calendarDate ? Number(calendarDate[2]) : parsed.getUTCMonth() + 1
+  const day = calendarDate ? Number(calendarDate[3]) : parsed.getUTCDate()
+  const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+  return `${day} ${months[month - 1]} ${year}`
 }
 
 function alertLevelClass(value) {
@@ -611,6 +705,8 @@ function alertLevelClass(value) {
   if (level.includes('rojo')) return 'alert-level-red'
   if (level.includes('naranja')) return 'alert-level-orange'
   if (level.includes('amarillo')) return 'alert-level-yellow'
+  if (level.includes('verde')) return 'alert-level-green'
+  if (level.includes('azul')) return 'alert-level-blue'
   return ''
 }
 
@@ -771,7 +867,7 @@ function WaterBodiesContent({ overflowedRows, risingRows }) {
             <thead><tr>{WATER_BODY_COLS.map(([, label]) => <th key={`${kind}-${label}`}>{label}</th>)}</tr></thead>
             <tbody>{rows.map((row, rowIndex) => (
               <tr key={`${kind}-${rowIndex}`}>
-                {WATER_BODY_COLS.map(([key]) => <td key={`${kind}-${rowIndex}-${key}`}>{formatTableCellValue(key, row[key]) ?? ''}</td>)}
+                {WATER_BODY_COLS.map(([key]) => <td key={`${kind}-${rowIndex}-${key}`}>{key === 'FechaNovedad' ? formatDateSpanishLong(row[key]) : (formatTableCellValue(key, row[key]) ?? '')}</td>)}
               </tr>
             ))}</tbody>
           </table>
@@ -850,7 +946,7 @@ function buildWaterBodiesWhatsAppMessage(overflowedRows, risingRows, cutoff, aut
 function App() {
   const maxSelectableDateTime = useMemo(() => toDateTimeInputValue(new Date()), [])
   const [tipo, setTipo] = useState('lluvias')
-  const [provinciaId, setProvinciaId] = useState('')
+  const [selectedProvince, setSelectedProvince] = useState('')
   const [reportOutputType, setReportOutputType] = useState('sitrep')
   const isReport24h = reportOutputType === 'report-24h'
   const [thematicReportType, setThematicReportType] = useState('water-bodies')
@@ -892,25 +988,25 @@ function App() {
   const [hydrometeorologyLoading, setHydrometeorologyLoading] = useState(false)
   const hydrometeorologyRequest = useRef(0)
 
-  const buildApiUrl = useCallback((endpointPath, provinciaValue = '') => {
+  const buildApiUrl = useCallback((endpointPath, desdeOverride = null) => {
     const base = `${API_BASE_URL}${endpointPath}`
     const params = new URLSearchParams()
     if (PUBLIC_API_KEY) params.set('api_key', PUBLIC_API_KEY)
-    const trimmedProvincia = provinciaValue.trim()
-    if (trimmedProvincia) params.set('ProvinciaID', trimmedProvincia)
-    if (desde) params.set('desde', desde)
+    const effectiveDesde = desdeOverride ?? desde
+    if (effectiveDesde) params.set('desde', effectiveDesde)
     if (hasta) params.set('hasta', hasta)
     const query = params.toString()
     return query ? `${base}?${query}` : base
   }, [desde, hasta])
-  const requestUrl = useMemo(() => buildApiUrl(ENDPOINTS[tipo], provinciaId), [buildApiUrl, tipo, provinciaId])
+  const section7StartDate = `${String(hasta || desde || new Date().getFullYear()).slice(0, 4)}-01-01T00:00`
+  const requestUrl = useMemo(() => buildApiUrl(ENDPOINTS[tipo]), [buildApiUrl, tipo])
   const buildHighImpactEventsUrl = useCallback(() => {
     const url = buildApiUrl(ENDPOINTS.eventosAltoImpactoLluvias)
-    const count = highImpactEventCount.trim() || (isReport24h ? '' : '15')
+    const count = selectedProvince ? '' : (highImpactEventCount.trim() || (isReport24h ? '' : '15'))
     if (!count) return url
     const separator = url.includes('?') ? '&' : '?'
     return `${url}${separator}cantidad=${encodeURIComponent(count)}`
-  }, [buildApiUrl, highImpactEventCount, isReport24h])
+  }, [buildApiUrl, highImpactEventCount, isReport24h, selectedProvince])
   const dateRangeValid = Boolean(desde && hasta && desde <= hasta)
 
   const validateDateRange = () => {
@@ -984,14 +1080,35 @@ function App() {
   const tipoLluviasRowsOrdered = useMemo(() => sortByNumeroEventosDesc(tipoLluviasItems), [tipoLluviasItems])
   const section3Cols = useMemo(() => {
     if (tipo !== 'lluvias') return currentDetailCols
-    return TIPO_LLUVIAS_COLS.filter(([key]) => (
-      key === 'Provincia'
-      || key === 'NumeroEventos'
-      || tipoLluviasRowsOrdered.reduce((total, row) => total + n(row?.[key]), 0) !== 0
+    const eventTypeColumns = TIPO_LLUVIAS_COLS.filter(([key]) => (
+      !['Provincia', 'NumeroEventos'].includes(key)
+      && tipoLluviasRowsOrdered.reduce((total, row) => total + n(row?.[key]), 0) !== 0
     ))
+    return [['__no__', 'No.'], ['Provincia', 'Provincia'], ...eventTypeColumns, ['__total__', 'Total']]
   }, [tipo, currentDetailCols, tipoLluviasRowsOrdered])
-  const section3BaseRows = useMemo(() => (tipo === 'lluvias' ? tipoLluviasRowsOrdered : detailRows), [tipo, tipoLluviasRowsOrdered, detailRows])
-  const section3RowsWithTotals = useMemo(() => withTotalsRow(section3Cols, section3BaseRows), [section3Cols, section3BaseRows])
+  const section3BaseRows = useMemo(() => (tipo === 'lluvias'
+    ? tipoLluviasRowsOrdered.map((row, index) => ({ ...row, __no__: index + 1, __total__: n(row?.NumeroEventos) }))
+    : detailRows), [tipo, tipoLluviasRowsOrdered, detailRows])
+  const section3RowsWithTotals = useMemo(() => {
+    if (tipo !== 'lluvias') return withTotalsRow(section3Cols, section3BaseRows)
+    const totalEvents = section3BaseRows.reduce((total, row) => total + n(row?.NumeroEventos), 0)
+    const totalRow = { __isTotal__: true, __no__: '', Provincia: 'Total general', __total__: totalEvents }
+    const percentageRow = { __isPercentage__: true, __no__: '', Provincia: 'Porcentaje', __total__: 100 }
+    section3Cols.slice(2, -1).forEach(([key]) => {
+      const eventTypeTotal = section3BaseRows.reduce((total, row) => total + n(row?.[key]), 0)
+      totalRow[key] = eventTypeTotal
+      percentageRow[key] = totalEvents ? eventTypeTotal / totalEvents * 100 : 0
+    })
+    return [...section3BaseRows, totalRow, percentageRow]
+  }, [tipo, section3Cols, section3BaseRows])
+  const section3MaxProvinceEvents = useMemo(() => Math.max(1, ...section3BaseRows.map((row) => n(row?.NumeroEventos))), [section3BaseRows])
+  const section3MaxEventTypePercentage = useMemo(() => {
+    const totalEvents = section3BaseRows.reduce((total, row) => total + n(row?.NumeroEventos), 0)
+    const maximum = Math.max(0, ...section3Cols.slice(2, -1).map(([key]) => (
+      section3BaseRows.reduce((total, row) => total + n(row?.[key]), 0)
+    )))
+    return totalEvents ? maximum / totalEvents * 100 : 0
+  }, [section3Cols, section3BaseRows])
   const totalEventosAdversos = useMemo(
     () => {
       const fromSection3 = section3BaseRows.reduce((acc, row) => acc + n(row?.NumeroEventos), 0)
@@ -1130,7 +1247,11 @@ function App() {
   )
   const shouldShowSection6 = useMemo(() => section6Rows.length > 0 && section6TotalGeneral > 0, [section6Rows.length, section6TotalGeneral])
   const section5Rows = useMemo(() => {
-    return alojamientosItems.map((row, idx) => ({ __no__: idx + 1, ...row }))
+    return alojamientosItems.map((row, idx) => ({
+      __no__: idx + 1,
+      ...row,
+      ...(row?.Apertura !== undefined ? { Apertura: formatDateOnlyYmd(row.Apertura) } : {}),
+    }))
   }, [alojamientosItems])
   const section5OrderedCols = useMemo(
     () =>
@@ -1146,12 +1267,20 @@ function App() {
       ]),
     [alojamientosItems]
   )
-  const section5AlojRowsWithTotals = useMemo(() => withTotalsRow(section5OrderedCols, section5Rows), [section5OrderedCols, section5Rows])
+  const section5AlojRowsWithTotals = useMemo(
+    () => withSelectedTotalsRow(section5OrderedCols, section5Rows, ['Familias', 'Personas']),
+    [section5OrderedCols, section5Rows]
+  )
   const shouldShowSection5 = useMemo(() => section5Rows.length > 0, [section5Rows.length])
 
 
   const section5RowsCerrados = useMemo(() => {
-    return alojamientosCerradosItems.map((row, idx) => ({ __no__: idx + 1, ...row }))
+    return alojamientosCerradosItems.map((row, idx) => ({
+      __no__: idx + 1,
+      ...row,
+      ...(row?.Apertura !== undefined ? { Apertura: formatDateOnlyYmd(row.Apertura) } : {}),
+      ...(row?.Cierre !== undefined ? { Cierre: formatDateOnlyYmd(row.Cierre) } : {}),
+    }))
   }, [alojamientosCerradosItems])
 
 
@@ -1181,7 +1310,13 @@ function App() {
 
 
   const sectionFallecidosRows = useMemo(() => {
-    return personasFalleciasItems.map((row, idx) => ({ __no__: idx + 1, ...row }))
+    return personasFalleciasItems.map((row, idx) => ({
+      __no__: idx + 1,
+      ...Object.fromEntries(Object.entries(row || {}).map(([key, value]) => [
+        key,
+        /fecha|apertura|cierre/i.test(key) ? formatDateOnlyYmd(value) : value,
+      ])),
+    }))
   }, [personasFalleciasItems])
 
   const sectionFallecidosOrderedCols = useMemo(
@@ -1339,7 +1474,7 @@ function App() {
     setCoeMunicipalItems([])
     setCopaeItems([])
     setEventosAltoImpactoItems([])
-  }, [tipo])
+  }, [tipo, selectedProvince])
 
   const onConsultar = async (event) => {
     event.preventDefault()
@@ -1352,21 +1487,20 @@ function App() {
       if (tipo === 'lluvias') validateHighImpactEventCount()
 
       if (tipo === 'lluvias') {
-        const trimmedProvincia = provinciaId.trim()
-        const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias, trimmedProvincia)
-        const dpaTotalsUrl = buildApiUrl(ENDPOINTS.lluviasTotalPorDpa, trimmedProvincia)
-        const asistenciaUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluvias, trimmedProvincia)
-        const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias, trimmedProvincia)
-        const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias, trimmedProvincia)
-        const asistenciaSNDGIRDUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluviasSNDGIRD, trimmedProvincia)
-        const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias, trimmedProvincia)
-        const eventosMesUrl = buildApiUrl(ENDPOINTS.eventosLluviasTotalPorMes, trimmedProvincia)
-        const viasCategoriaUrl = buildApiUrl(ENDPOINTS.getEventosporLluviasCategoria, trimmedProvincia)
+        const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias)
+        const dpaTotalsUrl = buildApiUrl(ENDPOINTS.lluviasTotalPorDpa)
+        const asistenciaUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluvias)
+        const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias)
+        const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias)
+        const asistenciaSNDGIRDUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluviasSNDGIRD)
+        const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias)
+        const eventosMesUrl = buildApiUrl(ENDPOINTS.eventosLluviasTotalPorMes)
+        const viasCategoriaUrl = buildApiUrl(ENDPOINTS.getEventosporLluviasCategoria)
         const cuerposHidricosDesbordadosUrl = buildApiUrl(ENDPOINTS.cuerposHidricosDesbordados)
         const cuerposHidricosTendenciaUrl = buildApiUrl(ENDPOINTS.cuerposHidricosTendencia)
-        const nivelesAlertaUrl = buildApiUrl(ENDPOINTS.nivelesAlertaLluvias)
-        const declaratoriasEmergenciaUrl = buildApiUrl(ENDPOINTS.declaratoriasEmergenciaLluvias)
-        const coeUrl = (tipoCoe) => `${buildApiUrl(ENDPOINTS.coesActivadosLluvias)}&tipo=${encodeURIComponent(tipoCoe)}`
+        const nivelesAlertaUrl = buildApiUrl(ENDPOINTS.nivelesAlertaLluvias, section7StartDate)
+        const declaratoriasEmergenciaUrl = buildApiUrl(ENDPOINTS.declaratoriasEmergenciaLluvias, section7StartDate)
+        const coeUrl = (tipoCoe) => `${buildApiUrl(ENDPOINTS.coesActivadosLluvias, section7StartDate)}&tipo=${encodeURIComponent(tipoCoe)}`
         const eventosAltoImpactoUrl = buildHighImpactEventsUrl()
 
         const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAlojamientos, responseAlojamientosCerrados, responseAsistenciaSNDGIRD, responsePersonasFallecidas, responseEventosMes, responseViasCategoria, responseCuerposDesbordados, responseCuerposTendencia, responseNivelesAlerta, responseDeclaratoriasEmergencia, responseCoeNacional, responseCoeProvincial, responseCoeMunicipal, responseCopae, responseEventosAltoImpacto] = await Promise.all([
@@ -1433,30 +1567,37 @@ function App() {
         if (!responseCopae.ok) throw new Error(dataCopae?.error || 'Error consultando COPAE parroquiales')
         if (!responseEventosAltoImpacto.ok) throw new Error(dataEventosAltoImpacto?.error || 'Error consultando eventos adversos de alto impacto')
 
-        setResponseData(dataMain)
-        setTipoLluviasItems(dataTipos?.items || [])
-        setAsistenciaItems(dataAsistencia?.items || [])
-        setDpaTotals((dataDpa?.items || [])[0] || null)
-        setAlojamientosItems(dataAlojamientos?.items || [])
-        setAlojamientosCerradosItems(dataAlojamientosCerrados?.items || []) // Limpiar alojamientos cerrados al consultar eventos por lluvias
-        setAsistenciaSNDGIRDItems(dataAsistenciaSNDGIRD?.items || [])
-        setpersonasFalleciasItems(dataPersonasFallecidas?.items || []) // Limpiar personas fallecidas al consultar eventos por lluvias
-        setEventosMesItems(dataEventosMes?.items || [])
-        setViasCategoriaItems(dataViasCategoria?.items || [])
-        setCuerposHidricosDesbordadosItems(dataCuerposDesbordados?.items || [])
-        setCuerposHidricosTendenciaItems(dataCuerposTendencia?.items || [])
-        setNivelesAlertaItems(dataNivelesAlerta?.items || [])
-        setDeclaratoriasEmergenciaItems(dataDeclaratoriasEmergencia?.items || [])
-        setCoeNacionalItems(dataCoeNacional?.items || [])
-        setCoeProvincialItems(dataCoeProvincial?.items || [])
-        setCoeMunicipalItems(dataCoeMunicipal?.items || [])
-        setCopaeItems(dataCopae?.items || [])
-        setEventosAltoImpactoItems(dataEventosAltoImpacto?.items || [])
+        const filteredMainItems = filterRowsByProvince(dataMain?.items, selectedProvince)
+        const filteredHighImpactItems = filterRowsByProvince(dataEventosAltoImpacto?.items, selectedProvince)
+        const localHighImpactLimit = Number(highImpactEventCount.trim() || (isReport24h ? 0 : 15))
+        setResponseData(filterApiDataByProvince(dataMain, selectedProvince))
+        setTipoLluviasItems(filterRowsByProvince(dataTipos?.items, selectedProvince))
+        setAsistenciaItems(filterRowsByProvince(dataAsistencia?.items, selectedProvince))
+        setDpaTotals(selectedProvince
+          ? provincialDpaTotals(selectedProvince, filteredMainItems)
+          : (dataDpa?.items || [])[0] || null)
+        setAlojamientosItems(filterRowsByProvince(dataAlojamientos?.items, selectedProvince))
+        setAlojamientosCerradosItems(filterRowsByProvince(dataAlojamientosCerrados?.items, selectedProvince))
+        setAsistenciaSNDGIRDItems(filterRowsByProvince(dataAsistenciaSNDGIRD?.items, selectedProvince))
+        setpersonasFalleciasItems(filterRowsByProvince(dataPersonasFallecidas?.items, selectedProvince))
+        setEventosMesItems(filterRowsByProvince(dataEventosMes?.items, selectedProvince))
+        setViasCategoriaItems(filterRowsByProvince(dataViasCategoria?.items, selectedProvince))
+        setCuerposHidricosDesbordadosItems(filterRowsByProvince(dataCuerposDesbordados?.items, selectedProvince))
+        setCuerposHidricosTendenciaItems(filterRowsByProvince(dataCuerposTendencia?.items, selectedProvince))
+        setNivelesAlertaItems(filterRowsByProvince(dataNivelesAlerta?.items, selectedProvince))
+        setDeclaratoriasEmergenciaItems(filterRowsByProvince(dataDeclaratoriasEmergencia?.items, selectedProvince))
+        setCoeNacionalItems(filterRowsByProvince(dataCoeNacional?.items, selectedProvince))
+        setCoeProvincialItems(filterRowsByProvince(dataCoeProvincial?.items, selectedProvince))
+        setCoeMunicipalItems(filterRowsByProvince(dataCoeMunicipal?.items, selectedProvince))
+        setCopaeItems(filterRowsByProvince(dataCopae?.items, selectedProvince))
+        setEventosAltoImpactoItems(localHighImpactLimit > 0
+          ? filteredHighImpactItems.slice(0, localHighImpactLimit)
+          : filteredHighImpactItems)
       } else {
         const response = await fetch(requestUrl)
         const data = await response.json()
         if (!response.ok) throw new Error(data?.error || 'Error consultando API')
-        setResponseData(data)
+        setResponseData(filterApiDataByProvince(data, selectedProvince))
         setTipoLluviasItems([])
         setAsistenciaItems([])
         setDpaTotals(null)
@@ -1513,7 +1654,7 @@ function App() {
       return
     }
 
-    if (!isReport24h && !hydrometeorology) {
+    if (format !== 'word' && !isReport24h && !hydrometeorology) {
       setError('Selecciona y procesa el boletín PDF del INAMHI antes de generar el SITREP.')
       return
     }
@@ -1526,22 +1667,21 @@ function App() {
       if (!isReport24h) validateAffectationLevel()
       validateHighImpactEventCount()
       validateAnalystName()
-      const trimmedProvincia = provinciaId.trim()
-      const mainUrl = buildApiUrl(ENDPOINTS.lluvias, trimmedProvincia)
-      const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias, trimmedProvincia)
-      const dpaTotalsUrl = buildApiUrl(ENDPOINTS.lluviasTotalPorDpa, trimmedProvincia)
-      const asistenciaUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluvias, trimmedProvincia)
-      const asistenciaSNDGIRDUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluviasSNDGIRD, trimmedProvincia)
-      const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias, trimmedProvincia)
-      const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias, trimmedProvincia)
-      const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias, trimmedProvincia)
-      const eventosMesUrl = buildApiUrl(ENDPOINTS.eventosLluviasTotalPorMes, trimmedProvincia)
-      const viasCategoriaUrl = buildApiUrl(ENDPOINTS.getEventosporLluviasCategoria, trimmedProvincia)
+      const mainUrl = buildApiUrl(ENDPOINTS.lluvias)
+      const tipoLluviasUrl = buildApiUrl(ENDPOINTS.tipoLluvias)
+      const dpaTotalsUrl = buildApiUrl(ENDPOINTS.lluviasTotalPorDpa)
+      const asistenciaUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluvias)
+      const asistenciaSNDGIRDUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluviasSNDGIRD)
+      const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias)
+      const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias)
+      const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias)
+      const eventosMesUrl = buildApiUrl(ENDPOINTS.eventosLluviasTotalPorMes)
+      const viasCategoriaUrl = buildApiUrl(ENDPOINTS.getEventosporLluviasCategoria)
       const cuerposHidricosDesbordadosUrl = buildApiUrl(ENDPOINTS.cuerposHidricosDesbordados)
       const cuerposHidricosTendenciaUrl = buildApiUrl(ENDPOINTS.cuerposHidricosTendencia)
-      const nivelesAlertaUrl = buildApiUrl(ENDPOINTS.nivelesAlertaLluvias)
-      const declaratoriasEmergenciaUrl = buildApiUrl(ENDPOINTS.declaratoriasEmergenciaLluvias)
-      const coeUrl = (tipoCoe) => `${buildApiUrl(ENDPOINTS.coesActivadosLluvias)}&tipo=${encodeURIComponent(tipoCoe)}`
+      const nivelesAlertaUrl = buildApiUrl(ENDPOINTS.nivelesAlertaLluvias, section7StartDate)
+      const declaratoriasEmergenciaUrl = buildApiUrl(ENDPOINTS.declaratoriasEmergenciaLluvias, section7StartDate)
+      const coeUrl = (tipoCoe) => `${buildApiUrl(ENDPOINTS.coesActivadosLluvias, section7StartDate)}&tipo=${encodeURIComponent(tipoCoe)}`
       const eventosAltoImpactoUrl = buildHighImpactEventsUrl()
 
       const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAsistenciaSNDGIRD, responseAlojamientos, responseAlojamientosCerrados, responsePersonasFallecidas, responseEventosMes, responseViasCategoria, responseCuerposDesbordados, responseCuerposTendencia, responseNivelesAlerta, responseDeclaratoriasEmergencia, responseCoeNacional, responseCoeProvincial, responseCoeMunicipal, responseCopae, responseEventosAltoImpacto] = await Promise.all([
@@ -1607,41 +1747,52 @@ function App() {
       if (!responseCopae.ok) throw new Error(dataCopae?.error || 'Error consultando COPAE parroquiales')
       if (!responseEventosAltoImpacto.ok) throw new Error(dataEventosAltoImpacto?.error || 'Error consultando eventos adversos de alto impacto')
 
+      const filteredItems = (data) => filterRowsByProvince(data?.items, selectedProvince)
+      const reportMainItems = filteredItems(dataMain)
+      const reportTipoItems = filteredItems(dataTipos)
+      const reportHighImpactItems = filteredItems(dataEventosAltoImpacto)
+      const localHighImpactLimit = Number(highImpactEventCount.trim() || (isReport24h ? 0 : 15))
+      const limitedHighImpactItems = localHighImpactLimit > 0
+        ? reportHighImpactItems.slice(0, localHighImpactLimit)
+        : reportHighImpactItems
+      const reportDpaTotals = selectedProvince
+        ? provincialDpaTotals(selectedProvince, reportMainItems)
+        : (dataDpa?.items || [])[0] || null
       const report24ImportantPoints = isReport24h
         ? buildPuntosImportantes(
-          dataMain?.items || [],
-          dataTipos?.items || [],
+          reportMainItems,
+          reportTipoItems,
           'lluvias',
-          (dataDpa?.items || [])[0] || null,
+          reportDpaTotals,
           desde,
           hasta
         )
         : null
       const reportOptions = {
-        items: dataMain?.items || [],
-        tipoLluviasItems: dataTipos?.items || [],
-        asistenciaItems: dataAsistencia?.items || [],
-        asistenciaSNDGIRDItems: dataAsistenciaSNDGIRD?.items || [],
-        alojamientosItems: dataAlojamientos?.items || [],
-        alojamientosCerradosItems: dataAlojamientosCerrados?.items || [],
-        eventosMesItems: dataEventosMes?.items || [],
-        viasCategoriaItems: dataViasCategoria?.items || [],
-        waterBodiesOverflowed: dataCuerposDesbordados?.items || [],
-        waterBodiesRising: dataCuerposTendencia?.items || [],
-        alertDeclarations: dataNivelesAlerta?.items || [],
-        emergencyDeclarations: dataDeclaratoriasEmergencia?.items || [],
-        nationalCoeItems: dataCoeNacional?.items || [],
-        provincialCoeItems: dataCoeProvincial?.items || [],
-        municipalCoeItems: dataCoeMunicipal?.items || [],
-        parishCoeItems: dataCopae?.items || [],
-        highImpactEvents: dataEventosAltoImpacto?.items || [],
+        items: reportMainItems,
+        tipoLluviasItems: reportTipoItems,
+        asistenciaItems: filteredItems(dataAsistencia),
+        asistenciaSNDGIRDItems: filteredItems(dataAsistenciaSNDGIRD),
+        alojamientosItems: filteredItems(dataAlojamientos),
+        alojamientosCerradosItems: filteredItems(dataAlojamientosCerrados),
+        eventosMesItems: filteredItems(dataEventosMes),
+        viasCategoriaItems: filteredItems(dataViasCategoria),
+        waterBodiesOverflowed: filteredItems(dataCuerposDesbordados),
+        waterBodiesRising: filteredItems(dataCuerposTendencia),
+        alertDeclarations: filteredItems(dataNivelesAlerta),
+        emergencyDeclarations: filteredItems(dataDeclaratoriasEmergencia),
+        nationalCoeItems: filteredItems(dataCoeNacional),
+        provincialCoeItems: filteredItems(dataCoeProvincial),
+        municipalCoeItems: filteredItems(dataCoeMunicipal),
+        parishCoeItems: filteredItems(dataCopae),
+        highImpactEvents: limitedHighImpactItems,
         analystName: analystName.trim(),
         analystEmail: analystEmail.trim(),
-        dpaTotals: (dataDpa?.items || [])[0] || null,
-        provinciaId: isReport24h ? null : provinciaId.trim() || null,
+        dpaTotals: reportDpaTotals,
+        provinciaId: isReport24h ? null : selectedProvince || null,
         sitrepNumber: isReport24h ? null : sitrepNumber.trim() || null,
         affectationLevel: isReport24h ? null : affectationLevel.trim(),
-        personasFallecidasItems: dataPersonasFallecidas?.items || [],
+        personasFallecidasItems: filteredItems(dataPersonasFallecidas),
         startDate: desde,
         endDate: hasta,
         hydrometeorology: isReport24h ? null : hydrometeorology,
@@ -1691,7 +1842,7 @@ function App() {
         municipalCoeItems: coeMunicipalItems,
         parishCoeItems: copaeItems,
         highImpactEvents: eventosAltoImpactoItems,
-        provinciaId: provinciaId.trim() || null,
+        provinciaId: selectedProvince || null,
         sitrepNumber: sitrepNumber.trim() || null,
         startDate: desde,
         endDate: hasta,
@@ -1778,7 +1929,7 @@ function App() {
                   checked={reportOutputType === 'water-bodies'}
                   onChange={(event) => {
                     setReportOutputType(event.target.value)
-                    setProvinciaId('')
+                    setSelectedProvince('')
                   }}
                 />
                 <span>Cuerpos hídricos</span>
@@ -1792,7 +1943,7 @@ function App() {
                   onChange={(event) => {
                     setReportOutputType(event.target.value)
                     setTipo('lluvias')
-                    setProvinciaId('')
+                    setSelectedProvince('')
                   }}
                 />
                 <span>Reporte 24hr</span>
@@ -1865,8 +2016,19 @@ function App() {
                     </select>
                   </label>
                   <label>
-                    ProvinciaID (opcional)
-                    <input type="number" min="1" placeholder="Ej: 1" value={provinciaId} onChange={(e) => setProvinciaId(e.target.value)} disabled={true} />
+                    Provincia
+                    <select
+                      value={selectedProvince}
+                      onChange={(event) => setSelectedProvince(event.target.value)}
+                      disabled={loading}
+                    >
+                      <option value="">Todas las provincias</option>
+                      {[...ECUADOR_PROVINCES]
+                        .sort((left, right) => left.name.localeCompare(right.name, 'es'))
+                        .map((province) => (
+                          <option key={province.name} value={province.name}>{province.name}</option>
+                        ))}
+                    </select>
                   </label>
                 </>
               )}
@@ -2050,12 +2212,21 @@ function App() {
                       <div className="hydrometeorology-layout warning-layout">
                         <div className="hydrometeorology-map">
                           <img src={hydrometeorology.mapImage} alt="Mapa de amenaza meteorológica extraído del boletín" />
+                          {hydrometeorology.detailImage && hydrometeorology.tableImage && (
+                            <img className="hydrometeorology-map-table" src={hydrometeorology.tableImage} alt="Tabla de estimación meteorológica extraída del boletín" />
+                          )}
                         </div>
                         <div className="hydrometeorology-warning-content">
-                        <div className="hydrometeorology-text">
-                          {hydrometeorology.text.split(/\n\s*\n/).map((paragraph, index) => <p key={`hydro-${index}`}>{paragraph}</p>)}
-                        </div>
-                          <img src={hydrometeorology.tableImage} alt="Tabla de estimación meteorológica extraída del boletín" />
+                          {hydrometeorology.detailImage ? (
+                            <img className="hydrometeorology-detail" src={hydrometeorology.detailImage} alt="Posibles afectaciones y zonas afectadas extraídas de la advertencia" />
+                          ) : (
+                            <div className="hydrometeorology-text">
+                              {hydrometeorology.text.split(/\n\s*\n/).map((paragraph, index) => <p key={`hydro-${index}`}>{paragraph}</p>)}
+                            </div>
+                          )}
+                          {!hydrometeorology.detailImage && hydrometeorology.tableImage && (
+                            <img src={hydrometeorology.tableImage} alt="Tabla de estimación meteorológica extraída del boletín" />
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -2103,8 +2274,15 @@ function App() {
                     </thead>
                     <tbody>
                       {section3RowsWithTotals.map((row, idx) => (
-                        <tr key={`tipo-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
-                          {section3Cols.map(([key]) => <td key={`tipo-${idx}-${key}`}>{row[key] ?? '0'}</td>)}
+                        <tr key={`tipo-${idx}`} className={row.__isTotal__ ? 'total-row' : row.__isPercentage__ ? 'section3-percentage-row' : ''}>
+                          {section3Cols.map(([key]) => (
+                            <td
+                              key={`tipo-${idx}-${key}`}
+                              className={section3CellClass(row, key, section3MaxProvinceEvents, section3MaxEventTypePercentage)}
+                            >
+                              {section3CellValue(row, key)}
+                            </td>
+                          ))}
                         </tr>
                       ))}
                     </tbody>
@@ -2213,26 +2391,6 @@ function App() {
                   title="Número de eventos vs Personas Impactadas por provincia"
                   rows={provinceChartRows}
                 />
-                <div className="table-wrap province-chart-table-wrap">
-                  <table className="province-chart-table">
-                    <thead>
-                      <tr>
-                        <th>Provincia</th>
-                        <th>Nro. de eventos</th>
-                        <th>Personas impactadas</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {provinceChartRows.map((row) => (
-                        <tr key={`province-chart-${row.label}`}>
-                          <td>{row.label}</td>
-                          <td>{formatInt(row.events)}</td>
-                          <td>{formatInt(row.people)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
               </section>
             )}
 
@@ -2240,12 +2398,6 @@ function App() {
               <>
             <div className="block-title pt-4">4.3 Numero de Eventos vs Personas Impactadas por fecha</div>
             <p className="muted">{section43Analisis}</p>
-            {monthlyChartRows.length > 0 && (
-              <EventsPeopleChart
-                title="Recurrencia de eventos vs personas impactadas por mes"
-                rows={monthlyChartRows}
-              />
-            )}
             <button
               type="button"
               onClick={() => downloadExcelXml('eventos_lluvias_total_por_mes.xml', 'EventosLluviasPorMes', EVENTOS_MES_COLS, section43RowsForExport)}
@@ -2253,23 +2405,33 @@ function App() {
             >
               Descargar Excel - Seccion 4.3
             </button>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>{EVENTOS_MES_COLS.map(([, label]) => <th key={`s43-${label}`}>{label}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {section43Rows.map((row, idx) => (
-                    <tr key={`s43-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
-                      <td>{row.mes || '-'}</td>
-                      <td>{formatInt(row.eventos)}</td>
-                      <td>{formatInt(row.personas_impactadas)}</td>
-                      <td className={row.__isTotal__ ? '' : getPctClass(row.pct_eventos, section43ColorMaximums.eventos)}>{formatPctText(row.pct_eventos)}</td>
-                      <td className={row.__isTotal__ ? '' : getPctClass(row.pct_personas_impactadas, section43ColorMaximums.personas)}>{formatPctText(row.pct_personas_impactadas)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="monthly-summary-scroll">
+              <div className="monthly-summary-layout">
+                <div className="table-wrap monthly-summary-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>{EVENTOS_MES_COLS.map(([, label]) => <th key={`s43-${label}`}>{label}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {section43Rows.map((row, idx) => (
+                        <tr key={`s43-${idx}`} className={row.__isTotal__ ? 'total-row' : ''}>
+                          <td>{row.mes || '-'}</td>
+                          <td>{formatInt(row.eventos)}</td>
+                          <td>{formatInt(row.personas_impactadas)}</td>
+                          <td className={row.__isTotal__ ? '' : getPctClass(row.pct_eventos, section43ColorMaximums.eventos)}>{formatPctText(row.pct_eventos)}</td>
+                          <td className={row.__isTotal__ ? '' : getPctClass(row.pct_personas_impactadas, section43ColorMaximums.personas)}>{formatPctText(row.pct_personas_impactadas)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {monthlyChartRows.length > 0 && (
+                  <EventsPeopleChart
+                    title="Recurrencia de eventos vs personas impactadas por mes"
+                    rows={monthlyChartRows}
+                  />
+                )}
+              </div>
             </div>
 
               <div className="block-title pt-4">4.5 Personas Fallecidas</div>
@@ -2465,7 +2627,7 @@ function App() {
                   <div className="coe-activated-section">
                     <h3 className="coe-section-title">Comités de Operaciones de Emergencias (COE) activados:</h3>
                     <p className="coe-intro">
-                      Desde el {formatDeclarationDate(desde)} hasta el {formatDeclarationDate(hasta)} se han activado los siguientes COE:
+                      Desde el {formatDeclarationDate(section7StartDate)} hasta el {formatDeclarationDate(hasta)} se han activado los siguientes COE:
                     </p>
 
                     {coeNacionalActivo && (
@@ -2557,13 +2719,23 @@ function App() {
                     <ul className="high-impact-list">
                       {zoneItems.map((item, itemIndex) => {
                         const affectations = splitReportLines(item?.Afectaciones).map(formatAffectationLine)
-                        const responseActions = String(item?.CoordinacionYRespuesta ?? '').trim()
+                        const responseActions = cleanHighImpactResponse(item?.CoordinacionYRespuesta)
+                        const eventMeta = highImpactEventMetaItems(item)
                         return (
                           <li key={`impacto-${item?.EventoAdversoID ?? `${zone}-${itemIndex}`}`}>
                             <p className="high-impact-description">
-                              <strong>{item?.Ubicacion || 'Ubicación no registrada'}.</strong>{' '}
-                              {String(item?.Antecedentes ?? '').trim()}
+                              <strong>{item?.Ubicacion || 'Ubicación no registrada'}.</strong>
                             </p>
+                            {eventMeta.length > 0 && (
+                              <div className="high-impact-event-meta">
+                                {eventMeta.map((meta) => (
+                                  <span className={`high-impact-event-tag high-impact-event-tag-${meta.kind}`} key={meta.kind}>
+                                    {meta.value}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {String(item?.Antecedentes ?? '').trim() && <p>{String(item.Antecedentes).trim()}</p>}
                             {String(item?.SituacionActual ?? '').trim() && <p>{String(item.SituacionActual).trim()}</p>}
                             {affectations.length > 0 && (
                               <div className="high-impact-affectations">

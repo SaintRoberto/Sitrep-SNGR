@@ -1,0 +1,9 @@
+Icons used by the 24-hour rainfall infographic:
+
+- rainy.png: cloud with seven raindrops.
+- flood.png: house above three water waves.
+- landslide.png: mountain, descending mass and four falling rocks.
+
+The three icons were reconstructed in high resolution from the visual reference
+provided by the user, cleaned to a transparent background and normalized to the
+report's institutional blue and orange palette.

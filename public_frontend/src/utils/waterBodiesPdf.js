@@ -31,8 +31,8 @@ const TABLE_COLUMNS = [
   { key: 'Canton', label: 'Cantón', width: 29 },
   { key: 'Parroquia', label: 'Parroquia', width: 46 },
   { key: 'Sector', label: 'Sector', width: 50 },
-  { key: 'CuerpoHidrico', label: 'Nombre cuerpo hídrico', width: 29 },
-  { key: 'FechaNovedad', label: 'Fecha de novedad', width: 23 },
+  { key: 'CuerpoHidrico', label: 'Nombre del cuerpo hídrico', width: 29 },
+  { key: 'FechaNovedad', label: 'Fecha de incremento del nivel', width: 23 },
   { key: 'Estado', label: 'Observaciones', width: 58 },
 ]
 
@@ -130,9 +130,16 @@ function drawReportPill(doc, reportNumber) {
 }
 
 function dateCell(value) {
-  const date = parseDate(value)
-  if (!date) return String(value ?? '')
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(raw)
+  const parsed = calendarDate ? null : new Date(raw)
+  if (!calendarDate && Number.isNaN(parsed.getTime())) return raw
+  const year = calendarDate ? calendarDate[1] : String(parsed.getUTCFullYear())
+  const month = calendarDate ? Number(calendarDate[2]) : parsed.getUTCMonth() + 1
+  const day = calendarDate ? calendarDate[3] : String(parsed.getUTCDate()).padStart(2, '0')
+  const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+  return `${day} de ${months[month - 1]} de ${year}`
 }
 
 function normalizeRows(overflowed, rising) {
@@ -531,17 +538,19 @@ function drawCallout(doc, group, x, map, side) {
 }
 
 function drawSummaryBox(doc, x, color, title, value) {
+  const width = 39
+  const centerX = x + width / 2
   doc.setFillColor(125, 125, 125)
-  doc.rect(x + 0.9, 18.4, 40, 25, 'F')
+  doc.rect(x + 0.9, 18.4, width, 25, 'F')
   doc.setFillColor(...color)
   doc.setDrawColor(...COLORS.white)
   doc.setLineWidth(0.35)
-  doc.rect(x, 17.5, 40, 25, 'FD')
+  doc.rect(x, 17.5, width, 25, 'FD')
   font(doc, 'bold', 8, COLORS.white)
-  const lines = doc.splitTextToSize(title, 35)
-  doc.text(lines, x + 20, 23, { align: 'center' })
+  const lines = doc.splitTextToSize(title, width - 5)
+  doc.text(lines, centerX, 23, { align: 'center' })
   font(doc, 'bold', 28, COLORS.white)
-  doc.text(String(value), x + 20, 39.2, { align: 'center' })
+  doc.text(String(value), centerX, 39.2, { align: 'center' })
 }
 
 function renderMapPage(doc, overflowRows, risingRows, assets) {
@@ -583,23 +592,23 @@ function renderMapPage(doc, overflowRows, risingRows, assets) {
   leftGroups.forEach((group) => drawCallout(doc, group, 7, map, 'left'))
   rightGroups.forEach((group) => drawCallout(doc, group, PAGE.width - 7 - group.width, map, 'right'))
 
-  drawSummaryBox(doc, 4, COLORS.red, 'Cuerpos hídricos\ndesbordados', overflowRows.length)
-  drawSummaryBox(doc, 44, COLORS.orange, 'Cuerpos hídricos con\naumento de nivel', risingRows.length)
+  drawSummaryBox(doc, 33, COLORS.red, 'Cuerpos hídricos\ndesbordados', overflowRows.length)
+  drawSummaryBox(doc, 72, COLORS.orange, 'Cuerpos hídricos con\naumento de nivel', risingRows.length)
 
   doc.setFillColor(255, 255, 255)
   doc.setDrawColor(50, 50, 50)
   doc.setLineWidth(0.25)
-  doc.rect(7, 181.5, 52, 13.5, 'FD')
+  doc.rect(40, 181.5, 52, 13.5, 'FD')
   font(doc, 'bold', 5.7, COLORS.black)
-  doc.text('Estado de cuerpos hídricos', 9, 186)
-  doc.line(7, 187.2, 59, 187.2)
+  doc.text('Estado de cuerpos hídricos', 42, 186)
+  doc.line(40, 187.2, 92, 187.2)
   doc.setFillColor(...COLORS.red)
-  doc.circle(10.5, 190, 1.05, 'F')
+  doc.circle(43.5, 190, 1.05, 'F')
   font(doc, 'normal', 5.3, COLORS.black)
-  doc.text('Desbordados', 13, 191)
+  doc.text('Desbordados', 46, 191)
   doc.setFillColor(...COLORS.orange)
-  doc.circle(10.5, 193.2, 1.05, 'F')
-  doc.text('Con tendencia a aumentar de nivel', 13, 194.2)
+  doc.circle(43.5, 193.2, 1.05, 'F')
+  doc.text('Con tendencia a aumentar de nivel', 46, 194.2)
 }
 
 function renderTableSection(doc, rows, options, decoration) {
