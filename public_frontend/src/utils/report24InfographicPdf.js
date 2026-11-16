@@ -1,7 +1,7 @@
 import jsPDFPackage from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { ECUADOR_PROVINCES, normalizeProvinceName, shortProvinceLabel } from './impactMap.js'
-import { cleanHighImpactResponseLines, highImpactEventMetaItems } from './highImpactEvents.js'
+import { highImpactEventMetaItems, highImpactResponseActionGroups } from './highImpactEvents.js'
 
 const JsPDF = jsPDFPackage.jsPDF || jsPDFPackage
 
@@ -94,6 +94,12 @@ const EVENT_ICON_FILES = {
   headerStorm: 'storm-header.png',
 }
 
+const TERRITORY_ICON_FILES = {
+  iconProvince: 'icono_provincia.png',
+  iconCanton: 'icono_canton.png',
+  iconParish: 'icono_parroquia.png',
+}
+
 function n(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0
   const raw = String(value ?? '').trim()
@@ -104,6 +110,26 @@ function n(value) {
 
 function sum(items, key) {
   return items.reduce((total, row) => total + n(row?.[key]), 0)
+}
+
+function uniqueCount(items, keys) {
+  return new Set(items.flatMap((row) => keys.map((key) => row?.[key])).filter(Boolean)).size
+}
+
+function affectedTerritoryTotals(options) {
+  const items = options.items || []
+  const dpaTotals = options.dpaTotals || {}
+  return {
+    provinces: Number.isFinite(Number(dpaTotals.TotalProvincias))
+      ? n(dpaTotals.TotalProvincias)
+      : uniqueCount(items, ['Provincia']),
+    cantons: Number.isFinite(Number(dpaTotals.TotalCantones))
+      ? n(dpaTotals.TotalCantones)
+      : uniqueCount(items, ['Canton', 'CantonNombre']),
+    parishes: Number.isFinite(Number(dpaTotals.TotalParroquias))
+      ? n(dpaTotals.TotalParroquias)
+      : uniqueCount(items, ['Parroquia', 'ParroquiaNombre']),
+  }
 }
 
 function fmt(value, decimals = false) {
@@ -155,6 +181,12 @@ function eventIconUrl(file, baseUrl) {
   return `${base.endsWith('/') ? base : `${base}/`}assets/report24-icons/${encodeURIComponent(file)}`
 }
 
+function territoryIconUrl(file, baseUrl) {
+  const productionBase = import.meta.env?.VITE_API_ENV === 'prod' ? import.meta.env?.VITE_API_PROD_URL : ''
+  const base = baseUrl || import.meta.env?.VITE_ASSET_BASE_URL || productionBase || import.meta.env?.BASE_URL || '/'
+  return `${base.endsWith('/') ? base : `${base}/`}assets/iconos%20SITREP/${encodeURIComponent(file)}`
+}
+
 async function asDataUrl(url) {
   const response = await fetch(url)
   if (!response.ok) throw new Error(`No se pudo cargar el recurso de la infografía 24hr: ${url}`)
@@ -180,9 +212,12 @@ async function loadAssets(baseUrl) {
   )))
   const iconEntries = Object.entries(EVENT_ICON_FILES)
   const iconValues = await Promise.all(iconEntries.map(([, file]) => asDataUrl(eventIconUrl(file, baseUrl))))
+  const territoryEntries = Object.entries(TERRITORY_ICON_FILES)
+  const territoryValues = await Promise.all(territoryEntries.map(([, file]) => asDataUrl(territoryIconUrl(file, baseUrl))))
   return {
     ...Object.fromEntries(entries.map(([key], index) => [key, values[index]])),
     ...Object.fromEntries(iconEntries.map(([key], index) => [key, iconValues[index]])),
+    ...Object.fromEntries(territoryEntries.map(([key], index) => [key, territoryValues[index]])),
   }
 }
 
@@ -321,19 +356,20 @@ function drawEventIcon(doc, assets, type, centerX, top, size = 14) {
   doc.addImage(eventIconAsset(assets, type), 'PNG', centerX - size / 2, top, size, size)
 }
 
-function renderMetricCard(doc, assets, { x, y, width, height, value, label, detail, type, fill, color }) {
+function renderMetricCard(doc, assets, { x, y, width, height, value, label, detail, icon, iconWidth, iconHeight, fill, color }) {
   doc.setFillColor(...fill)
   doc.roundedRect(x, y, width, height, 2.2, 2.2, 'F')
   const centerX = x + width / 2
-  drawEventIcon(doc, assets, type, centerX, y + 1.5, 15)
+  const contentOffsetY = 2
+  doc.addImage(assets[icon], 'PNG', centerX - iconWidth / 2, y + 1.2 + contentOffsetY, iconWidth, iconHeight)
   font(doc, 'black', 17.5, color)
-  doc.text(String(value), centerX, y + 23.8, { align: 'center' })
+  doc.text(String(value), centerX, y + 23.8 + contentOffsetY, { align: 'center' })
   font(doc, 'bold', 7.5, color)
   const labelLines = doc.splitTextToSize(label.toUpperCase(), width - 5).slice(0, 2)
-  doc.text(labelLines, centerX, y + 28.9, { align: 'center', lineHeightFactor: 0.9 })
+  doc.text(labelLines, centerX, y + 28.9 + contentOffsetY, { align: 'center', lineHeightFactor: 0.9 })
   if (detail) {
     font(doc, 'medium', 6.2, color)
-    doc.text(detail, centerX, y + (labelLines.length > 1 ? 36 : 33.8), { align: 'center' })
+    doc.text(detail, centerX, y + (labelLines.length > 1 ? 36 : 33.8) + contentOffsetY, { align: 'center' })
   }
 }
 
@@ -344,9 +380,7 @@ function renderImportantPoints(doc, options, summary) {
   sectionBand(doc, x, y, width, 'Puntos importantes', 'important')
   doc.setFillColor(235, 243, 251)
   doc.roundedRect(x, y + 7.5, width, 30.5, 2, 2, 'F')
-  const provinces = n(options.dpaTotals?.TotalProvincias) || new Set(options.items.map((row) => row?.Provincia).filter(Boolean)).size
-  const cantons = n(options.dpaTotals?.TotalCantones)
-  const parishes = n(options.dpaTotals?.TotalParroquias)
+  const { provinces, cantons, parishes } = affectedTerritoryTotals(options)
   const recurring = summary.types.slice(0, 3).map((type) => `${type.label.toLowerCase()} (${fmt(summary.total ? type.value / summary.total * 100 : 0, true)}%)`).join(' y ')
   const topProvinces = [...options.items]
     .sort((a, b) => n(b?.ImpactadasPersonas) - n(a?.ImpactadasPersonas) || n(b?.NumeroEventos) - n(a?.NumeroEventos))
@@ -366,26 +400,22 @@ function renderImportantPoints(doc, options, summary) {
   })
 }
 
-function renderMetricCards(doc, assets, summary) {
+function renderMetricCards(doc, assets, options) {
   const y = 44
   const gap = 2
   const x = 98
   const width = (106 - gap * 2) / 3
-  const primary = summary.types[0]
-  const secondary = summary.types[1]
-  const card = (type, index, fallbackLabel, color, fill) => ({
+  const { provinces, cantons, parishes } = affectedTerritoryTotals(options)
+  const card = (value, index, label, affectedLabel, icon, iconWidth, iconHeight, color, fill) => ({
     x: x + index * (width + gap), y, width, height: 38,
-    value: type ? `${Math.round(summary.total ? type.value / summary.total * 100 : 0)}%` : '0%',
-    label: type?.label || fallbackLabel,
-    detail: `${fmt(type?.value || 0)} ${(type?.value || 0) === 1 ? 'evento' : 'eventos'}`,
-    type: type?.key === 'Deslizamiento' ? 'landslide' : 'flood', color, fill,
+    value: fmt(value),
+    label,
+    detail: affectedLabel,
+    icon, iconWidth, iconHeight, color, fill,
   })
-  renderMetricCard(doc, assets, {
-    x, y, width, height: 38, value: fmt(summary.total), label: 'Eventos adversos',
-    detail: '', type: 'rain', color: COLORS.navy, fill: COLORS.cardBlue,
-  })
-  renderMetricCard(doc, assets, card(primary, 1, 'Sin tipo', COLORS.blue, COLORS.cardPurple))
-  renderMetricCard(doc, assets, card(secondary, 2, 'Sin otro tipo', COLORS.orange, COLORS.lightOrange))
+  renderMetricCard(doc, assets, card(provinces, 0, 'Provincias','', 'iconProvince', 15, 14.6, COLORS.navy, COLORS.cardBlue))
+  renderMetricCard(doc, assets, card(cantons, 1, 'Cantones', '', 'iconCanton', 16, 13.7, COLORS.blue, COLORS.cardPurple))
+  renderMetricCard(doc, assets, card(parishes, 2, 'Parroquias', '', 'iconParish', 15, 14.4, COLORS.orange, COLORS.lightOrange))
 }
 
 function table(doc, {
@@ -551,9 +581,11 @@ function renderProvinceDetail(doc, options, startY, meta) {
     y = 25
   }
   sectionBand(doc, x, y, width, 'Detalle de afectaciones por provincias', 'detail')
-  const narrative = ranked.slice(0, 3).map((row) => `${row.Provincia} con ${fmt(row.ImpactadasPersonas)} personas impactadas en ${fmt(row.NumeroEventos)} eventos`).join('; ')
+  const detailIntro = ranked.length
+    ? 'Las provincias que han presentado eventos con afectaciones son:'
+    : 'Las provincias que han presentado eventos con afectaciones son: sin afectaciones reportadas.'
   font(doc, 'medium', 6.5, COLORS.black)
-  doc.text(doc.splitTextToSize(`Las provincias son: ${narrative || 'sin afectaciones reportadas'}.`, width - 2).slice(0, 2), x + 1, y + 10)
+  doc.text(doc.splitTextToSize(detailIntro, width - 2).slice(0, 2), x + 1, y + 10)
   const rows = ranked.map((row, index) => visibleColumns.map((column) => {
     if (column.key === '__no__') return index + 1
     if (column.key === 'Provincia') return row.Provincia
@@ -625,6 +657,57 @@ function eventIconType(event) {
   return 'rain'
 }
 
+function wrapRichText(doc, segments, width, fontSize) {
+  const lines = []
+  let currentLine = []
+  let currentWidth = 0
+
+  segments.forEach((segment) => {
+    String(segment.text || '').trim().split(/\s+/).filter(Boolean).forEach((word) => {
+      font(doc, segment.bold ? 'bold' : 'normal', fontSize, COLORS.darkNavy)
+      let displayed = currentLine.length ? ` ${word}` : word
+      let displayedWidth = doc.getTextWidth(displayed)
+      if (currentLine.length && currentWidth + displayedWidth > width) {
+        lines.push(currentLine)
+        currentLine = []
+        currentWidth = 0
+        displayed = word
+        displayedWidth = doc.getTextWidth(displayed)
+      }
+      const previous = currentLine[currentLine.length - 1]
+      if (previous?.bold === Boolean(segment.bold)) previous.text += displayed
+      else currentLine.push({ text: displayed, bold: Boolean(segment.bold) })
+      currentWidth += displayedWidth
+    })
+  })
+  if (currentLine.length) lines.push(currentLine)
+  return lines
+}
+
+function responseActionRichLines(doc, event, width) {
+  return highImpactResponseActionGroups(event).flatMap((group) => {
+    const segments = []
+    group.actions.forEach((action, actionIndex) => {
+      if (actionIndex === 0 && group.date) segments.push({ text: `${group.date}:`, bold: true })
+      if (action.institution) segments.push({ text: action.institution, bold: true })
+      if (action.description) segments.push({ text: action.description, bold: false })
+    })
+    return wrapRichText(doc, segments, width, 5.4)
+  })
+}
+
+function drawRichTextLines(doc, lines, x, y, fontSize, lineHeight) {
+  lines.forEach((line) => {
+    let currentX = x
+    line.forEach((segment) => {
+      font(doc, segment.bold ? 'bold' : 'normal', fontSize, COLORS.darkNavy)
+      doc.text(segment.text, currentX, y)
+      currentX += doc.getTextWidth(segment.text)
+    })
+    y += lineHeight
+  })
+}
+
 function eventBlockLayout(doc, event, width) {
   font(doc, 'bold', 6.5, COLORS.darkNavy)
   const titleLines = doc.splitTextToSize(eventLocation(event), width - 27)
@@ -648,10 +731,10 @@ function eventBlockLayout(doc, event, width) {
   font(doc, 'bold', 5.5, COLORS.darkNavy)
   const affectationLines = eventAffectations(event)
     .flatMap((line) => doc.splitTextToSize(`▲ ${line}.`, width - 27))
-  const responseLines = cleanHighImpactResponseLines(event?.CoordinacionYRespuesta)
-    .flatMap((line) => doc.splitTextToSize(line, width - 27))
+  const responseLines = responseActionRichLines(doc, event, width - 27)
+  const responseLineCount = responseLines.length ? responseLines.length + 1 : 0
   const textHeight = 3.5 + titleLines.length * 2.7 + metaHeight + bodyLines.length * 2.25
-    + affectationLines.length * 2.35 + responseLines.length * 2.3 + 3
+    + affectationLines.length * 2.35 + responseLineCount * 2.3 + 3
   return { titleLines, metaTags, metaHeight, bodyLines, affectationLines, responseLines, height: Math.max(22, textHeight) }
 }
 
@@ -692,11 +775,12 @@ function renderEventBlock(doc, assets, event, x, y, width, layout) {
   }
   if (layout.responseLines.length) {
     font(doc, 'bold', 5.4, COLORS.darkNavy)
-    doc.text(layout.responseLines, x + 22, nextY)
+    doc.text('Acciones de respuesta:', x + 22, nextY)
+    drawRichTextLines(doc, layout.responseLines, x + 22, nextY + 2.3, 5.4, 2.3)
   }
 }
 
-function highImpactBand(doc, x, y, continuation = false) {
+function highImpactBand(doc, x, y) {
   doc.setFillColor(...COLORS.paleBlue)
   doc.roundedRect(x, y + 2, 198, 12.5, 2, 2, 'F')
   doc.setFillColor(...COLORS.navy)
@@ -707,9 +791,9 @@ function highImpactBand(doc, x, y, continuation = false) {
   font(doc, 'black', 7, COLORS.navy)
   doc.text('!', x + 5, y + 5.8, { align: 'center' })
   font(doc, 'bold', 9.2, COLORS.white)
-  doc.text(`EVENTOS ADVERSOS ${continuation ? ' - CONTINUACIÓN' : ''}`, x + 12, y + 5.3)
+  doc.text('EVENTOS ADVERSOS', x + 12, y + 5.3)
   font(doc, 'normal', 6.8, COLORS.darkNavy)
-  doc.text('A continuación, se detallan los eventos adversos relevantes de los últimos días:', x + 10, y + 12)
+  doc.text('A continuación, se detallan los eventos adversos relevantes de este periodo:', x + 10, y + 12)
 }
 
 function groupEventsByZone(events) {
@@ -800,7 +884,8 @@ function renderHighImpact(doc, assets, options, startY) {
     doc.text('No se registraron eventos adversos de alto impacto para el período consultado.', 105, y + 39, { align: 'center' })
     return
   }
-  let columnY = [y + 16, y + 16]
+  let contentTop = y + 16
+  let columnY = [contentTop, contentTop]
   let zonesPlacedOnPage = new Set()
   const zoneQueue = groupEventsByZone(events).map(([zone, zoneEvents]) => ({
     zone,
@@ -835,7 +920,7 @@ function renderHighImpact(doc, assets, options, startY) {
         }
       }
 
-      if (selectedColumn < 0 && columnY.every((value) => Math.abs(value - (y + 16)) < 0.5)) {
+      if (selectedColumn < 0 && columnY.every((value) => Math.abs(value - contentTop) < 0.5)) {
         selectedColumn = 0
         take = 1
       }
@@ -860,8 +945,8 @@ function renderHighImpact(doc, assets, options, startY) {
     if (zoneQueue.length) {
       doc.addPage('a4', 'portrait')
       y = 25
-      highImpactBand(doc, x, y, true)
-      columnY = [y + 16, y + 16]
+      contentTop = y
+      columnY = [contentTop, contentTop]
       zonesPlacedOnPage = new Set()
     }
   }
@@ -897,7 +982,7 @@ export async function buildReport24InfographicPdf(options = {}) {
   const meta = metadata(normalized)
   const summary = eventSummary(normalized)
   renderImportantPoints(doc, normalized, summary)
-  renderMetricCards(doc, assets, summary)
+  renderMetricCards(doc, assets, normalized)
   renderMap(doc, normalized)
   const summaryBottom = renderSummaryTable(doc, normalized, summary, meta)
   const detailBottom = renderProvinceDetail(doc, normalized, summaryBottom, meta)

@@ -1,7 +1,7 @@
 import jsPDFPackage from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { buildMunicipalCoeSummary, uniqueActiveCoeRows } from './coeConfig.js'
-import { cleanHighImpactResponseLines, highImpactEventMetaItems } from './highImpactEvents.js'
+import { highImpactEventMetaText, highImpactResponseActionGroups } from './highImpactEvents.js'
 import {
   buildProvinceImpactMap,
   ECUADOR_PROVINCES,
@@ -1612,25 +1612,16 @@ function renderPagedText(doc, currentY, text, options = {}) {
 }
 
 function renderHighImpactEventMeta(doc, currentY, item) {
-  const tags = highImpactEventMetaItems(item)
-  if (!tags.length) return currentY
-  currentY = ensurePageSpace(doc, currentY, 7)
-  const tagColors = {
-    type: { fill: [255, 240, 228], border: [242, 196, 159], text: [154, 61, 0] },
-    datetime: { fill: [231, 242, 252], border: [184, 212, 238], text: [7, 59, 112] },
-  }
-  let tagX = PAGE.left + 7
-  tags.forEach((tag) => {
-    font(doc, 'bold', 7, tagColors[tag.kind].text)
-    const tagWidth = doc.getTextWidth(tag.value) + 6
-    const colors = tagColors[tag.kind]
-    doc.setFillColor(...colors.fill)
-    doc.setDrawColor(...colors.border)
-    doc.roundedRect(tagX, currentY - 2.4, tagWidth, 4.7, 2, 2, 'FD')
-    doc.text(tag.value, tagX + 3, currentY + 0.1)
-    tagX += tagWidth + 2
+  const text = highImpactEventMetaText(item)
+  if (!text) return currentY
+  return renderPagedText(doc, currentY, text, {
+    left: PAGE.left + 7,
+    width: PAGE.contentWidth - 7,
+    style: 'bold',
+    fontSize: 7.4,
+    color: C.darkNavy,
+    after: 0.8,
   })
-  return currentY + 4.7
 }
 
 function renderHighImpactEvents(doc, currentY, items, metadata, alwaysShow = false) {
@@ -1640,7 +1631,7 @@ function renderHighImpactEvents(doc, currentY, items, metadata, alwaysShow = fal
     currentY = renderPagedText(doc, currentY, 'No se registraron eventos adversos de alto impacto para el período consultado.', { fontSize: 8.7, after: 2.5 })
     return sourceLine(doc, currentY, metadata)
   }
-  currentY = renderPagedText(doc, currentY, 'A continuación, se detallan los eventos adversos relevantes de los últimos días:', { fontSize: 8.7, after: 2.5 })
+  currentY = renderPagedText(doc, currentY, 'A continuación, se detallan los eventos adversos relevantes de este periodo:', { fontSize: 8.7, after: 2.5 })
 
   let activeZone = null
   items.forEach((item) => {
@@ -1683,13 +1674,28 @@ function renderHighImpactEvents(doc, currentY, items, metadata, alwaysShow = fal
       })
     })
 
-    if (String(item?.CoordinacionYRespuesta ?? '').trim()) {
-      cleanHighImpactResponseLines(item.CoordinacionYRespuesta).forEach((line) => {
-        currentY = renderPagedText(doc, currentY, line, {
-          left: PAGE.left + 7,
-          width: PAGE.contentWidth - 7,
+    const responseActionGroups = highImpactResponseActionGroups(item)
+    if (responseActionGroups.length) {
+      currentY = renderPagedText(doc, currentY, 'Acciones de respuesta:', {
+        left: PAGE.left + 7,
+        width: PAGE.contentWidth - 7,
+        style: 'bold',
+        fontSize: 8.2,
+        after: 0.8,
+      })
+      responseActionGroups.forEach((group) => {
+        const segments = [{ text: '-', bold: false }]
+        group.actions.forEach((action, actionIndex) => {
+          if (actionIndex === 0 && group.date) segments.push({ text: `${group.date}:`, bold: true })
+          if (action.institution) segments.push({ text: action.institution, bold: true })
+          if (action.description) segments.push({ text: action.description, bold: false })
+        })
+        currentY = renderRichParagraph(doc, currentY, segments, {
+          left: PAGE.left + 12,
+          width: PAGE.contentWidth - 12,
           fontSize: 8.2,
-          after: 0.8,
+          lineHeight: 3.8,
+          estimatedHeight: 12,
         })
       })
     }

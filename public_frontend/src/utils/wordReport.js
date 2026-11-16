@@ -22,7 +22,7 @@ import {
   WidthType,
 } from 'docx'
 import { buildMunicipalCoeSummary, uniqueActiveCoeRows } from './coeConfig.js'
-import { cleanHighImpactResponseLines, highImpactEventMetaItems } from './highImpactEvents.js'
+import { highImpactEventMetaText, highImpactResponseActionGroups } from './highImpactEvents.js'
 import {
   buildProvinceImpactMap,
   ECUADOR_PROVINCES,
@@ -1481,7 +1481,7 @@ export async function buildEventosLluviasWord({
   if (highImpactEvents.length || report24h) {
     children.push(sectionTitle('8', 'Eventos adversos de alto impacto'))
     children.push(paragraphFromSegments([[highImpactEvents.length
-      ? 'A continuación, se detallan los eventos adversos relevantes de los últimos días:'
+      ? 'A continuación, se detallan los eventos adversos relevantes de este periodo:'
       : 'No se registraron eventos adversos de alto impacto para el período consultado.', false]]))
     let activeZone = null
     highImpactEvents.forEach((item) => {
@@ -1491,25 +1491,27 @@ export async function buildEventosLluviasWord({
         activeZone = zone
       }
       children.push(paragraphFromSegments([[`${String(item?.Ubicacion || 'Ubicación no registrada').trim()}.`, true]], { bullet: true, keepNext: true }))
-      const eventMeta = highImpactEventMetaItems(item)
-      const eventMetaColors = {
-        type: { fill: 'FFF0E4', color: '9A3D00' },
-        datetime: { fill: 'E7F2FC', color: '073B70' },
-      }
-      if (eventMeta.length) children.push(paragraphFromSegments(eventMeta.flatMap((meta, index) => [
-        ...(index ? [{ text: '  ', size: 14 }] : []),
-        {
-          text: `  ${meta.value}  `,
-          bold: true,
-          size: 14,
-          color: eventMetaColors[meta.kind].color,
-          shading: { type: ShadingType.CLEAR, fill: eventMetaColors[meta.kind].fill, color: 'auto' },
-        },
-      ]), { before: 0, after: 80, keepNext: true }))
+      const eventMeta = highImpactEventMetaText(item)
+      if (eventMeta) children.push(paragraphFromSegments([{
+        text: eventMeta,
+        bold: true,
+        size: 15,
+        color: COLORS.darkNavy,
+      }], { before: 0, after: 80, keepNext: true }))
       if (String(item?.Antecedentes ?? '').trim()) children.push(paragraphFromSegments([[item.Antecedentes, false]]))
       if (String(item?.SituacionActual ?? '').trim()) children.push(paragraphFromSegments([[item.SituacionActual, false]]))
       reportLines(item?.Afectaciones).forEach((line) => children.push(paragraphFromSegments([[`${affectationText(line)}.`, true]], { bullet: true })))
-      cleanHighImpactResponseLines(item?.CoordinacionYRespuesta).forEach((line) => children.push(paragraphFromSegments([[line, false]])))
+      const responseActionGroups = highImpactResponseActionGroups(item)
+      if (responseActionGroups.length) children.push(paragraphFromSegments([['Acciones de respuesta:', true]], { keepNext: true }))
+      responseActionGroups.forEach((group) => {
+        const segments = []
+        group.actions.forEach((action, actionIndex) => {
+          if (actionIndex === 0 && group.date) segments.push([`${group.date}: `, true])
+          if (action.institution) segments.push([`${action.institution} `, true])
+          if (action.description) segments.push([`${action.description}${actionIndex < group.actions.length - 1 ? ' ' : ''}`, false])
+        })
+        children.push(paragraphFromSegments(segments, { bullet: true }))
+      })
     })
     children.push(sourceLine(metadata))
   }

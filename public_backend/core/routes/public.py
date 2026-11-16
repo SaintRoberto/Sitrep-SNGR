@@ -21,6 +21,7 @@ from ..services.afectaciones_service import (
     get_declaratorias_emergencia_por_lluvias,
     get_coes_por_lluvias,
     get_eventos_alto_impacto_por_lluvias,
+    get_actividades_evento_por_lluvias,
 )
 from ..services.consolidado_service import (
     ConsolidadoServiceError,
@@ -903,5 +904,23 @@ def eventos_alto_impacto_por_lluvias():
     try:
         data = get_eventos_alto_impacto_por_lluvias(desde, hasta, cantidad)
         return jsonify({"cantidad": cantidad, "total": len(data), "items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": str(error), "details": error.details}), 500
+
+
+@public_bp.get("/eventos-alto-impacto-por-lluvias/<int:evento_adverso_id>/actividades")
+@require_api_key
+def actividades_evento_alto_impacto_por_lluvias(evento_adverso_id):
+    """Lista las acciones de respuesta registradas para un evento adverso."""
+    if evento_adverso_id < 1:
+        return jsonify({"error": "evento_adverso_id must be greater than zero"}), 400
+
+    try:
+        data = get_actividades_evento_por_lluvias(evento_adverso_id)
+        return jsonify({
+            "evento_adverso_id": evento_adverso_id,
+            "total": len(data),
+            "items": data,
+        }), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": str(error), "details": error.details}), 500

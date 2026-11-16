@@ -38,6 +38,7 @@ npm run build
 
 ## Endpoints usados
 - `/api/public/eventos-por-lluvias`
+- `/api/public/eventos-alto-impacto-por-lluvias/:eventoAdversoId/actividades`
 - `/api/public/eventos-no-por-lluvias`
 - `/api/public/eventos-por-incendios-forestales`
 

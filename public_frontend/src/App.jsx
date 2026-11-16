@@ -8,7 +8,7 @@ import { exportReport24InfographicPdf } from './utils/report24InfographicPdf.js'
 import { exportWaterBodiesPdf } from './utils/waterBodiesPdf.js'
 import { processHydrometeorologyPdf } from './utils/hydrometeorologyPdf.js'
 import { buildMunicipalCoeSummary, coeActivationClass, uniqueActiveCoeRows } from './utils/coeConfig.js'
-import { cleanHighImpactResponse, highImpactEventMetaItems } from './utils/highImpactEvents.js'
+import { highImpactEventMetaText, highImpactResponseActionGroups } from './utils/highImpactEvents.js'
 import {
   buildProvinceImpactMap,
   ECUADOR_PROVINCES,
@@ -49,6 +49,7 @@ const ENDPOINTS = {
   declaratoriasEmergenciaLluvias: '/api/public/declaratorias-emergencia-por-lluvias',
   coesActivadosLluvias: '/api/public/coes-activados-por-lluvias',
   eventosAltoImpactoLluvias: '/api/public/eventos-alto-impacto-por-lluvias',
+  actividadesEventoAltoImpactoLluvias: '/api/public/eventos-alto-impacto-por-lluvias',
 }
 
 
@@ -1007,6 +1008,23 @@ function App() {
     const separator = url.includes('?') ? '&' : '?'
     return `${url}${separator}cantidad=${encodeURIComponent(count)}`
   }, [buildApiUrl, highImpactEventCount, isReport24h, selectedProvince])
+  const loadHighImpactActivities = useCallback(async (events) => {
+    const eventIds = [...new Set(events.map((item) => item?.EventoAdversoID).filter((id) => Number(id) > 0))]
+    const activitiesByEvent = new Map(await Promise.all(eventIds.map(async (eventId) => {
+      const params = new URLSearchParams()
+      if (PUBLIC_API_KEY) params.set('api_key', PUBLIC_API_KEY)
+      const query = params.toString()
+      const url = `${API_BASE_URL}${ENDPOINTS.actividadesEventoAltoImpactoLluvias}/${encodeURIComponent(eventId)}/actividades${query ? `?${query}` : ''}`
+      const response = await fetch(url)
+      const data = await response.json()
+      if (!response.ok) throw new Error(data?.error || `Error consultando acciones de respuesta del evento ${eventId}`)
+      return [String(eventId), Array.isArray(data?.items) ? data.items : []]
+    })))
+    return events.map((item) => ({
+      ...item,
+      Actividades: activitiesByEvent.get(String(item?.EventoAdversoID)) || [],
+    }))
+  }, [])
   const dateRangeValid = Boolean(desde && hasta && desde <= hasta)
 
   const validateDateRange = () => {
@@ -1590,9 +1608,10 @@ function App() {
         setCoeProvincialItems(filterRowsByProvince(dataCoeProvincial?.items, selectedProvince))
         setCoeMunicipalItems(filterRowsByProvince(dataCoeMunicipal?.items, selectedProvince))
         setCopaeItems(filterRowsByProvince(dataCopae?.items, selectedProvince))
-        setEventosAltoImpactoItems(localHighImpactLimit > 0
+        const limitedHighImpactItems = localHighImpactLimit > 0
           ? filteredHighImpactItems.slice(0, localHighImpactLimit)
-          : filteredHighImpactItems)
+          : filteredHighImpactItems
+        setEventosAltoImpactoItems(await loadHighImpactActivities(limitedHighImpactItems))
       } else {
         const response = await fetch(requestUrl)
         const data = await response.json()
@@ -1755,6 +1774,7 @@ function App() {
       const limitedHighImpactItems = localHighImpactLimit > 0
         ? reportHighImpactItems.slice(0, localHighImpactLimit)
         : reportHighImpactItems
+      const enrichedHighImpactItems = await loadHighImpactActivities(limitedHighImpactItems)
       const reportDpaTotals = selectedProvince
         ? provincialDpaTotals(selectedProvince, reportMainItems)
         : (dataDpa?.items || [])[0] || null
@@ -1785,7 +1805,7 @@ function App() {
         provincialCoeItems: filteredItems(dataCoeProvincial),
         municipalCoeItems: filteredItems(dataCoeMunicipal),
         parishCoeItems: filteredItems(dataCopae),
-        highImpactEvents: limitedHighImpactItems,
+        highImpactEvents: enrichedHighImpactItems,
         analystName: analystName.trim(),
         analystEmail: analystEmail.trim(),
         dpaTotals: reportDpaTotals,
@@ -2711,7 +2731,7 @@ function App() {
               <div className="high-impact-section">
                 <div className="block-title pt-4">8. Eventos adversos de alto impacto</div>
                 <p className="high-impact-intro">{eventosAltoImpactoItems.length
-                  ? 'A continuación, se detallan los eventos adversos relevantes de los últimos días:'
+                  ? 'A continuación, se detallan los eventos adversos relevantes de este periodo:'
                   : 'No se registraron eventos adversos de alto impacto para el período consultado.'}</p>
                 {eventosAltoImpactoPorZona.map(([zone, zoneItems]) => (
                   <div className="high-impact-zone" key={`zona-${zone}`}>
@@ -2719,22 +2739,14 @@ function App() {
                     <ul className="high-impact-list">
                       {zoneItems.map((item, itemIndex) => {
                         const affectations = splitReportLines(item?.Afectaciones).map(formatAffectationLine)
-                        const responseActions = cleanHighImpactResponse(item?.CoordinacionYRespuesta)
-                        const eventMeta = highImpactEventMetaItems(item)
+                        const responseActionGroups = highImpactResponseActionGroups(item)
+                        const eventMeta = highImpactEventMetaText(item)
                         return (
                           <li key={`impacto-${item?.EventoAdversoID ?? `${zone}-${itemIndex}`}`}>
                             <p className="high-impact-description">
                               <strong>{item?.Ubicacion || 'Ubicación no registrada'}.</strong>
                             </p>
-                            {eventMeta.length > 0 && (
-                              <div className="high-impact-event-meta">
-                                {eventMeta.map((meta) => (
-                                  <span className={`high-impact-event-tag high-impact-event-tag-${meta.kind}`} key={meta.kind}>
-                                    {meta.value}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
+                            {eventMeta && <p className="high-impact-event-meta">{eventMeta}</p>}
                             {String(item?.Antecedentes ?? '').trim() && <p>{String(item.Antecedentes).trim()}</p>}
                             {String(item?.SituacionActual ?? '').trim() && <p>{String(item.SituacionActual).trim()}</p>}
                             {affectations.length > 0 && (
@@ -2742,7 +2754,26 @@ function App() {
                                 {affectations.map((line, lineIndex) => <p key={`afectacion-${lineIndex}`}>- {line}.</p>)}
                               </div>
                             )}
-                            {responseActions && <p className="high-impact-response">{responseActions}</p>}
+                            {responseActionGroups.length > 0 && (
+                              <div className="high-impact-response">
+                                <strong>Acciones de respuesta:</strong>
+                                {responseActionGroups.map((group, groupIndex) => (
+                                  <p key={`respuesta-${group.date || groupIndex}`}>
+                                    - {group.actions.map((action, actionIndex) => {
+                                      return (
+                                        <span key={`respuesta-${groupIndex}-${actionIndex}`}>
+                                          {actionIndex > 0 && ' '}
+                                          {actionIndex === 0 && group.date && <strong>{group.date}:</strong>}
+                                          {actionIndex === 0 && group.date && (action.institution || action.description) ? ' ' : ''}
+                                          {action.institution && <strong>{action.institution}</strong>}
+                                          {action.institution && action.description ? ' ' : ''}{action.description}
+                                        </span>
+                                      )
+                                    })}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
                           </li>
                         )
                       })}

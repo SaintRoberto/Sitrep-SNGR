@@ -268,3 +268,16 @@ def get_eventos_alto_impacto_por_lluvias(desde, hasta, cantidad=None):
             "cantidad": cantidad,
         }
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
+
+
+def get_actividades_evento_por_lluvias(evento_adverso_id):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-Actividades`(%s)"
+
+    try:
+        return _run_query(query, [evento_adverso_id])
+    except pymysql.MySQLError as db_error:
+        details = {
+            "mysql_error": str(db_error),
+            "evento_adverso_id": evento_adverso_id,
+        }
+        raise AfectacionesServiceError("Database query failed", details=details) from db_error
