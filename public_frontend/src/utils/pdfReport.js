@@ -7,6 +7,7 @@ import {
   ECUADOR_PROVINCES,
   impactColor,
   impactLegend,
+  provinceChartLabel,
   provinceImpactValue,
   shortProvinceLabel,
 } from './impactMap.js'
@@ -70,8 +71,8 @@ const EVENT_TYPES = [
 
 const DETAIL_COLUMNS = [
   ['__no__', 'No.', 'index'], ['Provincia', 'Provincia', 'text'], ['NumeroEventos', 'Nro. de eventos', 'number'],
-  ['ImpactadasPersonas', 'Personas Impactadas', 'number', true], ['Extraviados', 'Personas Extraviadas', 'number'],
   ['Fallecidos', 'Personas Fallecidas', 'number'], ['Heridos', 'Personas Heridas', 'number'],
+  ['ImpactadasPersonas', 'Personas Impactadas', 'number', true], ['Extraviados', 'Personas Extraviadas', 'number'],
   ['AfectadosPersonas', 'Personas Afectadas', 'number'], ['DamnificadosPersonas', 'Personas Damnificadas', 'number'],
   ['AfectadosFamilias', 'Familias Afectadas', 'number'], ['DamnificadosFamilias', 'Familias Damnificadas', 'number'],
   ['AfectadosViviendas', 'Viviendas Afectadas', 'number'], ['DestruidosViviendas', 'Viviendas Destruidas', 'number'],
@@ -406,10 +407,15 @@ function renderSectionTitle(doc, currentY, number, title) {
 }
 
 function sourceLine(doc, currentY, metadata, note = '') {
-  currentY = ensurePageSpace(doc, currentY, 6)
+  const noteText = String(note || '').trim().replace(/^\.\s*/, '')
+  currentY = ensurePageSpace(doc, currentY, noteText ? 10 : 6)
   font(doc, 'bold', 5.7, C.black)
-  doc.text(`${metadata.source}${note}`, PAGE.width / 2, currentY, { align: 'center' })
-  return currentY + 4
+  doc.text(metadata.source, PAGE.width / 2, currentY, { align: 'center' })
+  if (noteText) {
+    font(doc, 'normal', 5.7, C.black)
+    doc.text(noteText, PAGE.width / 2, currentY + 3.5, { align: 'center' })
+  }
+  return currentY + (noteText ? 7.5 : 4)
 }
 
 function ranking(items, limit = 8) {
@@ -509,7 +515,7 @@ function renderRequiredImportantPoint(doc, currentY, segments, width) {
     const words = String(segment.text || '').trim().split(/\s+/).filter(Boolean)
     words.forEach((word) => {
       font(doc, segment.bold ? 'bold' : 'normal', size, segment.highlight ? C.white : C.black)
-      let displayed = x === left ? word : ` ${word}`
+      let displayed = x === left || segment.attach ? word : ` ${word}`
       let wordWidth = doc.getTextWidth(displayed)
       if (x + wordWidth > left + width) {
         y += lineHeight
@@ -721,7 +727,7 @@ function renderWaterBodyTable(doc, currentY, rows, title, titleColor) {
       if (section === 'body' && isBoldEntityColumn(columns[column.index])) cell.styles.fontStyle = 'bold'
     },
   })
-  return doc.lastAutoTable.finalY
+  return doc.lastAutoTable.finalY + 4
 }
 
 function renderWaterBodies(doc, currentY, overflowedRows, risingRows, metadata) {
@@ -750,16 +756,6 @@ function heat(value, maximum) {
   if (percentageOfMaximum < 3) return C.green
   if (percentageOfMaximum < 10) return C.yellowGreen
   if (percentageOfMaximum < 30) return C.yellow
-  return C.orangeScale
-}
-
-function provinceImpactHeat(value, maximum) {
-  const numericValue = n(value)
-  if (maximum > 0 && numericValue === maximum) return C.red
-  const percentageOfMaximum = maximum > 0 ? (numericValue / maximum) * 100 : 0
-  if (percentageOfMaximum < 0.3) return C.green
-  if (percentageOfMaximum <= 1) return C.yellowGreen
-  if (percentageOfMaximum <= 30) return C.yellow
   return C.orangeScale
 }
 
@@ -800,7 +796,9 @@ function eventColumns(items) {
   const dynamic = [...new Set(items.flatMap((row) => Object.keys(row || {})))]
     .filter((key) => !['Provincia', 'ProvinciaID', 'NumeroEventos'].includes(key) && !known.has(key))
     .map((key) => ({ key, label: humanize(key) }))
-  const types = [...EVENT_TYPES, ...dynamic].filter((type) => has(items, type.key) && sum(items, type.key) !== 0)
+  const types = [...EVENT_TYPES, ...dynamic]
+    .filter((type) => has(items, type.key) && sum(items, type.key) !== 0)
+    .sort((left, right) => sum(items, right.key) - sum(items, left.key))
   return [
     { key: '__no__', label: 'No.', type: 'index' },
     { key: 'Provincia', label: 'Provincia', type: 'text' },
@@ -825,12 +823,14 @@ function renderEventsTable(doc, currentY, items, metadata) {
     : column.type === 'text' ? String(row?.[column.key] ?? '')
       : column.key === '__total__' ? fmt(row?.NumeroEventos ?? 0) : fmt(row?.[column.key] ?? 0)))
   body.push(columns.map((column) => column.type === 'index' ? ''
-    : column.type === 'text' ? 'Total general'
+    : column.type === 'text' ? 'Total'
       : column.key === '__total__' ? fmt(totalEvents) : fmt(sum(items, column.key))))
   body.push(columns.map((column) => column.type === 'index' ? ''
     : column.type === 'text' ? 'Porcentaje'
       : column.key === '__total__' ? pct(100) : pct(totalEvents ? (sum(items, column.key) / totalEvents) * 100 : 0)))
-  const fixed = 40, eventWidth = (PAGE.contentWidth - fixed) / Math.max(columns.length - 3, 1)
+  const eventsTableWidth = Math.min(PAGE.contentWidth, 154)
+  const eventsTableMargin = (PAGE.width - eventsTableWidth) / 2
+  const fixed = 40, eventWidth = (eventsTableWidth - fixed) / Math.max(columns.length - 3, 1)
   const columnStyles = {
     0: { cellWidth: 6 },
     1: { cellWidth: 24, halign: 'left', overflow: 'linebreak' },
@@ -842,8 +842,8 @@ function renderEventsTable(doc, currentY, items, metadata) {
   const maxEvents = Math.max(1, ...sorted.map((row) => n(row?.NumeroEventos)))
   const maxEventTypeTotal = Math.max(1, ...columns.slice(2, -1).map((column) => sum(items, column.key)))
   autoTable(doc, {
-    startY: currentY, head: [columns.map((column) => column.label)], body, theme: 'grid', tableWidth: PAGE.contentWidth,
-    margin: { left: PAGE.left, right: PAGE.right, top: PAGE.top, bottom: PAGE.height - PAGE.bottom },
+    startY: currentY, head: [columns.map((column) => column.label)], body, theme: 'grid', tableWidth: eventsTableWidth,
+    margin: { left: eventsTableMargin, right: eventsTableMargin, top: PAGE.top, bottom: PAGE.height - PAGE.bottom },
     styles: { font: 'BarlowCondensed', fontSize: 6.1, cellPadding: 0.55, halign: 'center', valign: 'middle', lineWidth: 0.12, lineColor: C.line, minCellHeight: 4 },
     headStyles: { fillColor: C.navy, textColor: C.white, minCellHeight: 30, fontSize: 6 },
     alternateRowStyles: { fillColor: C.alternate }, columnStyles, rowPageBreak: 'avoid', showHead: 'everyPage',
@@ -940,12 +940,13 @@ function renderProvinceDetail(doc, currentY, items, metadata, sectionNumber = '4
   ))
   const body = sorted.map((row, index) => columns.map((column) => column.type === 'index' ? index + 1
     : column.type === 'text' ? String(row?.[column.key] ?? '') : fmt(row?.[column.key] ?? 0, column.type === 'decimal')))
-  body.push(columns.map((column) => column.type === 'index' ? '' : column.type === 'text' ? 'Total general' : fmt(sum(items, column.key), column.type === 'decimal')))
+  body.push(columns.map((column) => column.type === 'index' ? '' : column.type === 'text' ? 'Total' : fmt(sum(items, column.key), column.type === 'decimal')))
   const fixed = 29.5, numericWidth = (PAGE.contentWidth - fixed) / Math.max(columns.length - 2, 1)
   const columnStyles = { 0: { cellWidth: 5.5 }, 1: { cellWidth: 24, halign: 'left', overflow: 'linebreak' } }
   columns.slice(2).forEach((_, index) => {
     columnStyles[index + 2] = { cellWidth: numericWidth, cellPadding: 0.1, overflow: 'hidden' }
   })
+  const maxEvents = Math.max(1, ...sorted.map((row) => n(row?.NumeroEventos)))
   const maxPeople = Math.max(1, ...sorted.map((row) => n(row?.ImpactadasPersonas)))
   autoTable(doc, {
     startY: currentY, head: [columns.map((column) => column.label)], body, theme: 'grid', tableWidth: PAGE.contentWidth,
@@ -959,24 +960,25 @@ function renderProvinceDetail(doc, currentY, items, metadata, sectionNumber = '4
       if (section !== 'body') return
       if (column.index >= 1) cell.styles.fontStyle = 'bold'
       if (row.index === body.length - 1) Object.assign(cell.styles, { fillColor: C.navy, textColor: C.white, fontStyle: 'bold' })
-      else if (columns[column.index]?.key === 'ImpactadasPersonas') cell.styles.fillColor = provinceImpactHeat(n(sorted[row.index]?.ImpactadasPersonas), maxPeople)
+      else if (columns[column.index]?.key === 'ImpactadasPersonas') cell.styles.fillColor = heat(n(sorted[row.index]?.ImpactadasPersonas), maxPeople)
+      else if (columns[column.index]?.key === 'NumeroEventos') cell.styles.fillColor = heat(n(sorted[row.index]?.NumeroEventos), maxEvents)
       if (column.index >= 2) keepNumericCellSingleLine(doc, cell, numericWidth)
     },
     didDrawCell: ({ cell, column, section }) => {
       if (section === 'head' && column.index >= 2) verticalHeader(doc, columns[column.index].label, cell, Math.max(4.4, Math.min(5.3, numericWidth)))
     },
   })
-  return sourceLine(doc, doc.lastAutoTable.finalY, metadata, '. Nota: Personas impactadas incluye personas afectadas y damnificadas.') + 2
+  return sourceLine(doc, doc.lastAutoTable.finalY + 3, metadata, 'Nota: Personas impactadas incluye personas afectadas y damnificadas.') + 2
 }
 
 function renderProvinceImpactChart(doc, currentY, items, metadata) {
-  const rows = items.map((row) => ({ label: String(row?.Provincia || '').trim(), events: n(row?.NumeroEventos), people: n(row?.ImpactadasPersonas) }))
+  const rows = items.map((row) => ({ label: provinceChartLabel(row?.Provincia), events: n(row?.NumeroEventos), people: n(row?.ImpactadasPersonas) }))
     .filter((row) => row.label && (row.events || row.people)).sort((a, b) => b.people - a.people || b.events - a.events)
   if (!rows.length || !has(items, 'ImpactadasPersonas')) return currentY
   currentY = ensurePageSpace(doc, currentY, 78)
   const x = PAGE.left + 14, y = currentY + 11, width = PAGE.contentWidth - 28, height = 40
   const maxEvents = Math.max(...rows.map((row) => row.events), 1), maxPeople = Math.max(...rows.map((row) => row.people), 1), slot = width / rows.length
-  const barWidth = Math.max(1.2, slot * 0.5)
+  const barWidth = Math.max(2, slot * 0.72)
   const bars = rows.map((row, index) => {
     const barX = x + index * slot + (slot - barWidth) / 2
     const barHeight = (row.events / maxEvents) * height
@@ -1085,7 +1087,7 @@ function renderMonthlySummary(doc, currentY, items, metadata) {
   font(doc, 'normal', 8.4)
   currentY = wrapped(doc, `Desde el ${metadata.startNumeric} hasta el ${metadata.endNumeric}, el mayor impacto a la población se registró en ${top.month}, con ${pct(totalPeople ? (top.people / totalPeople) * 100 : 0)}.`, PAGE.left, currentY, PAGE.contentWidth) + 3
   const columns = [
-    { key: 'month', label: 'Mes', total: 'Total general' },
+    { key: 'month', label: 'Mes', total: 'Total' },
     ...(totalEvents !== 0 ? [
       { key: 'events', label: 'Número de eventos', total: fmtInteger(totalEvents) },
     ] : []),
@@ -1132,22 +1134,22 @@ function renderMonthlySummary(doc, currentY, items, metadata) {
   font(doc, 'normal', 7.5, C.gray); doc.text('Recurrencia de eventos vs personas impactadas por mes', x + width / 2, currentY + 4, { align: 'center' })
   const points = []
   const eventLabels = []
-  const labelHeight = 3.8
+  const labelHeight = 4.6
   const labelGap = 0.7
-  const collisionOffsetY = 5
+  const collisionOffsetY = 6
   const labelMetrics = (text) => {
-    font(doc, 'bold', 5, C.gray)
-    return { width: Math.max(4, doc.getTextWidth(text) + 0.8), height: labelHeight }
+    font(doc, 'bold', 5.7, C.gray)
+    return { width: Math.max(5.2, doc.getTextWidth(text) + 1.6), height: labelHeight }
   }
   const drawLabel = (text, centerX, top, fillColor, textColor) => {
     const metrics = labelMetrics(text)
     doc.setFillColor(...fillColor)
     doc.rect(centerX - metrics.width / 2, top, metrics.width, metrics.height, 'F')
-    font(doc, 'bold', 5, textColor)
-    doc.text(text, centerX, top + 2.65, { align: 'center' })
+    font(doc, 'bold', 5.7, textColor)
+    doc.text(text, centerX, top + 3.2, { align: 'center' })
   }
   rows.forEach((row, index) => {
-    const bx = x + index * slot + slot * 0.25, bw = slot * 0.5, bh = row.events / maxEvents * height
+    const bx = x + index * slot + slot * 0.12, bw = slot * 0.76, bh = row.events / maxEvents * height
     const centerX = bx + bw / 2
     doc.setFillColor(69, 114, 190); doc.rect(bx, y + height - bh, bw, bh, 'F')
     points.push([centerX, y + height - row.people / maxPeople * height])
@@ -1156,7 +1158,7 @@ function renderMonthlySummary(doc, currentY, items, metadata) {
       centerX,
       top: Math.max(y - labelHeight - 0.4, y + height - bh - labelHeight - labelGap),
     })
-    font(doc, 'normal', 5.2, C.gray); doc.text(row.month, centerX, y + height + 8, { align: 'center' })
+    font(doc, 'normal', 6.2, C.gray); doc.text(row.month, centerX, y + height + 8, { align: 'center' })
   })
   doc.setDrawColor(...C.orange); doc.setLineWidth(0.6)
   for (let index = 1; index < points.length; index += 1) doc.line(points[index - 1][0], points[index - 1][1], points[index][0], points[index][1])
@@ -1206,7 +1208,12 @@ function detectColumns(items, priority = []) {
     }).map((key) => {
       const values = items.map((row) => row?.[key]).filter((value) => value !== undefined && value !== null && String(value).trim() !== '')
       const numeric = values.length && values.every((value) => Number.isFinite(Number(String(value).replace(',', '.'))))
-      return { key, label: humanize(key), type: numeric ? 'number' : 'text', format: /^(fecha|apertura|cierre)$/i.test(key) ? reportDateOnly : undefined }
+      return {
+        key,
+        label: key === '__no__' ? 'No.' : humanize(key),
+        type: numeric ? 'number' : 'text',
+        format: /fecha|apertura|cierre/i.test(key) ? reportDateOnly : undefined,
+      }
     })
 }
 
@@ -1224,7 +1231,7 @@ function renderGenericTable(doc, currentY, items, options = {}) {
       && (!totalKeys.size || totalKeys.has(column.key))
     return shouldTotal
       ? fmt(sum(items, column.key), column.type === 'decimal')
-      : index === 0 ? 'Total general' : ''
+      : index === 0 ? 'Total' : ''
   }))
   const provinceIndex = columns.findIndex((column) => /provincia/i.test(`${column.key} ${column.label}`))
   const textIndex = provinceIndex >= 0 ? provinceIndex : Math.max(0, columns.findIndex((column) => column.type === 'text'))
@@ -1232,11 +1239,22 @@ function renderGenericTable(doc, currentY, items, options = {}) {
     && index !== textIndex
     && !isHorizontalEntityHeader(column)
   const textWidth = provinceIndex >= 0 ? 24 : Math.min(44, PAGE.contentWidth * 0.34)
-  const otherWidth = (PAGE.contentWidth - textWidth) / Math.max(columns.length - 1, 1), columnStyles = {}
+  const otherWidth = (PAGE.contentWidth - textWidth) / Math.max(columns.length - 1, 1)
+  const configuredWeights = options.columnWidthWeights
+  const weightTotal = configuredWeights
+    ? columns.reduce((total, column) => total + (configuredWeights[column.key] || 1), 0)
+    : 0
+  const columnWidths = columns.map((column, index) => configuredWeights
+    ? PAGE.contentWidth * (configuredWeights[column.key] || 1) / weightTotal
+    : index === textIndex ? textWidth : otherWidth)
+  const columnStyles = {}
   columns.forEach((column, index) => {
-    columnStyles[index] = index === textIndex
-      ? { cellWidth: textWidth, halign: 'left', overflow: 'linebreak' }
-      : { cellWidth: otherWidth, ...(['number', 'decimal'].includes(column.type) ? { cellPadding: 0.1, overflow: 'hidden' } : {}) }
+    const alignLeft = configuredWeights
+      ? ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Alojamiento'].includes(column.key)
+      : index === textIndex
+    columnStyles[index] = alignLeft
+      ? { cellWidth: columnWidths[index], halign: 'left', overflow: 'linebreak' }
+      : { cellWidth: columnWidths[index], ...(['number', 'decimal'].includes(column.type) ? { cellPadding: 0.1, overflow: 'hidden' } : {}) }
   })
   autoTable(doc, {
     startY: currentY, head: [columns.map((column) => column.label)], body, theme: 'grid', tableWidth: PAGE.contentWidth,
@@ -1250,49 +1268,81 @@ function renderGenericTable(doc, currentY, items, options = {}) {
       if (section === 'body' && options.total && row.index === body.length - 1) Object.assign(cell.styles, { fillColor: C.navy, textColor: C.white, fontStyle: 'bold' })
       const isRequestedBoldColumn = options.boldColumns?.includes(columns[column.index]?.key)
       if (section === 'body' && (isBoldEntityColumn(columns[column.index]) || ['number', 'decimal'].includes(columns[column.index]?.type) || isRequestedBoldColumn)) cell.styles.fontStyle = 'bold'
-      if (section === 'body' && ['number', 'decimal'].includes(columns[column.index]?.type)) keepNumericCellSingleLine(doc, cell, otherWidth)
+      if (section === 'body' && ['number', 'decimal'].includes(columns[column.index]?.type)) keepNumericCellSingleLine(doc, cell, columnWidths[column.index])
     },
     didDrawCell: ({ cell, column, section }) => {
       if (section === 'head' && isVerticalHeader(columns[column.index], column.index)) verticalHeader(doc, columns[column.index].label, cell, 5.2)
     },
   })
-  return doc.lastAutoTable.finalY
+  return doc.lastAutoTable.finalY + 4
 }
 
-function renderTemporaryShelterSection(doc, currentY, number, title, items, priority, metadata, action, totalKeys = []) {
+function renderTemporaryShelterSection(doc, currentY, number, title, items, priority, metadata, action, totalKeys = [], options = {}) {
   if (!items.length) return currentY
   currentY = renderSectionTitle(doc, currentY, number, title)
   const shelterCount = items.length
-  const actionText = shelterCount === 1 ? `se ha ${action.singular}` : `se han ${action.plural}`
-  const shelterText = shelterCount === 1 ? 'alojamiento temporal' : 'alojamientos temporales'
-  currentY = renderRichParagraph(doc, currentY, [
-    { text: 'Desde el' },
-    { text: `${metadata.startTitle},`, bold: true },
-    { text: actionText },
-    { text: `${fmt(shelterCount)} ${shelterText}.`, bold: true },
-  ], { fontSize: 8.4, lineHeight: 4, estimatedHeight: 6 })
-  currentY = renderGenericTable(doc, currentY, items, {
-    priority,
+  const introSegments = options.introSegments || (() => {
+    const actionText = shelterCount === 1 ? `se ha ${action.singular}` : `se han ${action.plural}`
+    const shelterText = shelterCount === 1 ? 'alojamiento temporal' : 'alojamientos temporales'
+    return [
+      { text: 'Desde el' },
+      { text: `${metadata.startTitle},`, bold: true },
+      { text: actionText },
+      { text: `${fmt(shelterCount)} ${shelterText}.`, bold: true },
+    ]
+  })()
+  currentY = renderRichParagraph(doc, currentY, introSegments, { fontSize: 8.4, lineHeight: 4, estimatedHeight: 6 })
+  const numberedItems = items.map((row, index) => ({ __no__: index + 1, ...row }))
+  currentY = renderGenericTable(doc, currentY, numberedItems, {
+    priority: ['__no__', ...priority],
+    columns: options.columns,
     fontSize: 7,
     vertical: false,
-    boldColumns: ['Apertura', 'Cierre'],
+    boldColumns: ['Apertura', 'Cierre', 'fechaImplementacion'],
+    columnWidthWeights: {
+      __no__: 0.35,
+      Provincia: 0.75,
+      Parroquia: 2.1,
+      Nombre: 2.1,
+      Alojamiento: 2.1,
+    },
     total: totalKeys.length > 0,
     totalKeys,
   })
   return sourceLine(doc, currentY, metadata) + 2
 }
 
-function renderTemporaryShelters(doc, currentY, openItems, closedItems, metadata) {
+function renderTemporaryShelters(doc, currentY, openItems, closedItems, implementedItems, metadata) {
   currentY = renderTemporaryShelterSection(
     doc, currentY, '5.1', 'Alojamientos Temporales Abiertos', openItems,
     ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura', 'Familias', 'Personas'], metadata,
     { singular: 'activado', plural: 'activado' },
     ['Familias', 'Personas'],
   )
-  return renderTemporaryShelterSection(
+  currentY = renderTemporaryShelterSection(
     doc, currentY + 2, '5.2', 'Alojamientos Temporales Cerrados', closedItems,
     ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura', 'Cierre'], metadata,
     { singular: 'cerrado', plural: 'cerrado' },
+  )
+  return renderTemporaryShelterSection(
+    doc, currentY + 2, '5.3', 'Alojamientos Temporales Implementados', implementedItems,
+    ['Provincia', 'Canton', 'Parroquia', 'Alojamiento', 'fechaImplementacion'], metadata,
+    { singular: 'implementado', plural: 'implementados' },
+    [],
+    {
+      introSegments: [
+        { text: 'Adicional, se encuentran implementados' },
+        { text: `${fmt(implementedItems.length)} alojamientos temporales:`, bold: true },
+      ],
+      columns: [
+        { key: '__no__', label: 'No.', type: 'number' },
+        { key: 'Provincia', label: 'Provincia', type: 'text' },
+        { key: 'Canton', label: 'Cantón', type: 'text' },
+        { key: 'Parroquia', label: 'Parroquia', type: 'text' },
+        { key: 'Alojamiento', label: 'Alojamiento temporal', type: 'text' },
+        { key: 'fechaImplementacion', label: 'Fecha de implementación', type: 'text', format: reportDateOnly },
+      ],
+    },
   )
 }
 
@@ -1383,7 +1433,7 @@ function renderRichParagraph(doc, currentY, segments, options = {}) {
   segments.forEach((segment) => {
     const words = String(segment.text || '').trim().split(/\s+/).filter(Boolean)
     words.forEach((word) => {
-      font(doc, segment.bold ? 'bold' : 'normal', size, C.black)
+      font(doc, segment.bold ? 'bold' : 'normal', size, segment.color || C.black)
       let displayed = x === left ? word : ` ${word}`
       let wordWidth = doc.getTextWidth(displayed)
       if (x + wordWidth > left + width) {
@@ -1541,7 +1591,7 @@ function renderActivatedCoes(doc, currentY, nationalItems, provincialItems, muni
     currentY = renderCoeSubtitle(doc, currentY, `A nivel nacional, se registran ${fmt(municipal.totalActive)} COE Cantonales activos de un total de ${fmt(municipal.totalCantons)} cantones, lo que representa una activación global del ${municipal.globalPercentage}%.`)
     const municipalRows = [
       ...municipal.rows,
-      { Provincia: 'Total general', TotalCantones: municipal.totalCantons, CantonesActivos: municipal.totalActive, PorcentajeActivacion: municipal.globalPercentage },
+      { Provincia: 'Total', TotalCantones: municipal.totalCantons, CantonesActivos: municipal.totalActive, PorcentajeActivacion: municipal.globalPercentage },
     ]
     currentY = renderCoeTable(doc, currentY, municipalRows, [
       { key: 'Provincia', label: 'Provincia', width: 38 },
@@ -1689,6 +1739,11 @@ function renderHighImpactEvents(doc, currentY, items, metadata, alwaysShow = fal
           if (actionIndex === 0 && group.date) segments.push({ text: `${group.date}:`, bold: true })
           if (action.institution) segments.push({ text: action.institution, bold: true })
           if (action.description) segments.push({ text: action.description, bold: false })
+          if (action.finalized) {
+            segments.push({ text: '(', bold: false })
+            segments.push({ text: 'finalizado', bold: false, color: C.green, attach: true })
+            segments.push({ text: ').', bold: false, attach: true })
+          }
         })
         currentY = renderRichParagraph(doc, currentY, segments, {
           left: PAGE.left + 12,
@@ -1808,7 +1863,7 @@ function renderProvinceImpactMap(doc, currentY, items, analystName, analystEmail
 }
 
 export async function buildEventosLluviasPdf({
-  items = [], tipoLluviasItems = [], asistenciaItems = [], asistenciaSNDGIRDItems = [], alojamientosItems = [], alojamientosCerradosItems = [],
+  items = [], tipoLluviasItems = [], asistenciaItems = [], asistenciaSNDGIRDItems = [], alojamientosItems = [], alojamientosCerradosItems = [], alojamientosImplementadosItems = [],
   eventosMesItems = [], viasCategoriaItems = [], dpaTotals = null, sitrepNumber = null, affectationLevel = null,
   hydrometeorology = null, waterBodiesOverflowed = [], waterBodiesRising = [], alertDeclarations = [], emergencyDeclarations = [],
   nationalCoeItems = [], provincialCoeItems = [], municipalCoeItems = [], parishCoeItems = [],
@@ -1835,7 +1890,7 @@ export async function buildEventosLluviasPdf({
   currentY = renderProvinceDetail(doc, currentY, items, metadata, report24h ? '4.2' : '4')
   if (!report24h) currentY = renderProvinceImpactChart(doc, currentY, items, metadata)
   if (!report24h) currentY = renderMonthlySummary(doc, currentY, eventosMesItems, metadata)
-  if (!report24h) currentY = renderTemporaryShelters(doc, currentY, alojamientosItems, alojamientosCerradosItems, metadata)
+  if (!report24h) currentY = renderTemporaryShelters(doc, currentY, alojamientosItems, alojamientosCerradosItems, alojamientosImplementadosItems, metadata)
   if (!report24h) currentY = renderAssistance(doc, currentY, asistenciaItems, asistenciaSNDGIRDItems, metadata)
   if (!report24h) currentY = renderDeclarations(doc, currentY, alertDeclarations, emergencyDeclarations, nationalCoeItems, provincialCoeItems, municipalCoeItems, parishCoeItems, metadata)
   currentY = renderHighImpactEvents(doc, currentY, highImpactEvents, metadata, report24h)

@@ -28,6 +28,7 @@ import {
   ECUADOR_PROVINCES,
   impactColor,
   impactLegend,
+  provinceChartLabel,
   provinceImpactValue,
   shortProvinceLabel,
 } from './impactMap.js'
@@ -88,8 +89,8 @@ const SINGLE_LINE_DETAIL_KEYS = new Set([
 
 const DETAIL_COLUMNS = [
   ['Provincia', 'Provincia', 'text'], ['NumeroEventos', 'Nro. de eventos', 'number'],
-  ['ImpactadasPersonas', 'Personas impactadas', 'number'], ['Extraviados', 'Personas extraviadas', 'number'],
   ['Fallecidos', 'Personas fallecidas', 'number'], ['Heridos', 'Personas heridas', 'number'],
+  ['ImpactadasPersonas', 'Personas impactadas', 'number'], ['Extraviados', 'Personas extraviadas', 'number'],
   ['AfectadosPersonas', 'Personas afectadas', 'number'], ['DamnificadosPersonas', 'Personas damnificadas', 'number'],
   ['AfectadosFamilias', 'Familias afectadas', 'number'], ['DamnificadosFamilias', 'Familias damnificadas', 'number'],
   ['AfectadosViviendas', 'Viviendas afectadas', 'number'], ['DestruidosViviendas', 'Viviendas destruidas', 'number'],
@@ -351,6 +352,19 @@ function proportionalWidths(columns, total = CONTENT_WIDTH_DXA, firstWide = fals
   return widths
 }
 
+function shelterTableWidths(columns) {
+  const weights = columns.map((column) => {
+    if (column.key === '__no__') return 0.35
+    if (column.key === 'Provincia') return 0.75
+    if (['Parroquia', 'Nombre', 'Alojamiento'].includes(column.key)) return 2.1
+    return 1
+  })
+  const totalWeight = weights.reduce((total, weight) => total + weight, 0)
+  const widths = weights.map((weight) => Math.floor(CONTENT_WIDTH_DXA * weight / totalWeight))
+  widths[widths.length - 1] += CONTENT_WIDTH_DXA - widths.reduce((total, width) => total + width, 0)
+  return widths
+}
+
 function keepNumericValueTogether(value) {
   return String(value).replace(/([.,])/g, '\u2060$1\u2060')
 }
@@ -597,11 +611,11 @@ function detectColumns(items, priority = []) {
     }).map((key) => {
       const values = items.map((row) => row?.[key]).filter((value) => String(value ?? '').trim())
       const numeric = values.length && values.every((value) => Number.isFinite(Number(String(value).replace(',', '.'))))
-      const dateOnly = /^(fecha|apertura|cierre)$/i.test(key)
+      const dateOnly = /fecha|apertura|cierre/i.test(key)
       const initialDate = key === 'FechaInicial'
       return {
         key,
-        label: humanize(key),
+        label: key === '__no__' ? 'No.' : humanize(key),
         type: numeric ? 'number' : 'text',
         format: numeric ? (value) => fmt(value) : dateOnly ? reportDateOnly : initialDate ? declarationDate : undefined,
       }
@@ -719,7 +733,7 @@ function affectationText(value) {
   return amountParts.length ? `${amountParts.join('=').trim()} ${label.trim()}` : String(value ?? '').trim()
 }
 
-function chartImage(rows, title, firstKey, secondKey, firstLabel, secondLabel) {
+function chartImage(rows, title, firstKey, secondKey, firstLabel, secondLabel, options = {}) {
   if (typeof document === 'undefined' || !rows.length) return null
   const canvas = document.createElement('canvas')
   canvas.width = 1400
@@ -755,19 +769,25 @@ function chartImage(rows, title, firstKey, secondKey, firstLabel, secondLabel) {
     const centerX = plot.x + slot * index + slot / 2
     const barHeight = n(row[firstKey]) / maxFirst * plot.height
     context.fillStyle = '#4572BE'
-    context.fillRect(centerX - Math.max(8, slot * 0.22), plot.y + plot.height - barHeight, Math.max(16, slot * 0.44), barHeight)
+    context.fillRect(centerX - Math.max(12, slot * 0.36), plot.y + plot.height - barHeight, Math.max(24, slot * 0.72), barHeight)
     context.fillStyle = '#59616B'
-    context.font = 'bold 17px Arial Narrow, Arial, sans-serif'
+    context.font = 'bold 19px Arial Narrow, Arial, sans-serif'
     context.textAlign = 'center'
     context.fillText(fmt(row[firstKey]), centerX, Math.max(plot.y + 16, plot.y + plot.height - barHeight - 7))
     points.push([centerX, plot.y + plot.height - n(row[secondKey]) / maxSecond * plot.height])
-    context.save()
-    context.translate(centerX + 3, plot.y + plot.height + 42)
-    context.rotate(-Math.PI / 3)
-    context.font = 'bold 15px Arial Narrow, Arial, sans-serif'
-    context.textAlign = 'right'
-    context.fillText(String(row.label || ''), 0, 0)
-    context.restore()
+    if (options.horizontalLabels) {
+      context.font = '18px Arial Narrow, Arial, sans-serif'
+      context.textAlign = 'center'
+      context.fillText(String(row.label || ''), centerX, plot.y + plot.height + 34)
+    } else {
+      context.save()
+      context.translate(centerX + 3, plot.y + plot.height + 42)
+      context.rotate(-Math.PI / 3)
+      context.font = 'bold 15px Arial Narrow, Arial, sans-serif'
+      context.textAlign = 'right'
+      context.fillText(String(row.label || ''), 0, 0)
+      context.restore()
+    }
   })
   context.strokeStyle = '#EF7024'
   context.lineWidth = 4
@@ -779,13 +799,13 @@ function chartImage(rows, title, firstKey, secondKey, firstLabel, secondLabel) {
     context.beginPath()
     context.arc(x, y, 6, 0, Math.PI * 2)
     context.fill()
-    context.font = 'bold 17px Arial Narrow, Arial, sans-serif'
+    context.font = 'bold 19px Arial Narrow, Arial, sans-serif'
     context.textAlign = 'center'
     const label = fmt(rows[index][secondKey])
     const labelY = Math.min(plot.y + plot.height + 25, y + 28)
-    const labelWidth = context.measureText(label).width + 10
+    const labelWidth = context.measureText(label).width + 18
     context.fillStyle = '#EF7024'
-    context.fillRect(x - labelWidth / 2, labelY - 18, labelWidth, 23)
+    context.fillRect(x - labelWidth / 2, labelY - 22, labelWidth, 29)
     context.fillStyle = '#FFFFFF'
     context.fillText(label, x, labelY)
   })
@@ -868,7 +888,7 @@ function provinceMapImage(items) {
 
 function addGenericTable(children, items, priority = [], total = false, options = {}) {
   if (!items.length) return
-  const columns = detectColumns(items, priority)
+  const columns = (options.columns || detectColumns(items, priority))
     .filter((column) => !options.excludeKeys?.includes(column.key))
   const rows = [...items]
   const totalKeys = new Set(options.totalKeys || [])
@@ -880,6 +900,7 @@ function addGenericTable(children, items, priority = [], total = false, options 
   }
   addTable(children, dataTable(columns, rows, {
     ...options,
+    widths: typeof options.widths === 'function' ? options.widths(columns) : options.widths,
     totalRowIndex: total ? rows.length - 1 : -1,
     fontSize: columns.length > 10 ? 10 : 13,
   }))
@@ -1023,13 +1044,50 @@ function hydrometeorologyContent(data) {
   const title = sectionTitle('2', 'Situación Hidrometeorológica actual')
 
   if (data.type === 'forecast') {
-    const children = [title, paragraphFromSegments([[data.text, false]])]
-    ;(data.maps || []).forEach((map) => {
-      const size = fittedImageSize(map.aspectRatio, 245, 330)
-      children.push(new Paragraph({ children: [textRun(map.region, true, { size: 16, color: COLORS.navy })], alignment: AlignmentType.CENTER, spacing: { before: 70, after: 40 }, keepNext: true }))
-      children.push(new Paragraph({ children: [new ImageRun({ type: 'png', data: map.image, transformation: size })], alignment: AlignmentType.CENTER, spacing: { after: 100 } }))
+    const regionOrder = ['LITORAL', 'INTERANDINA', 'AMAZÓNICA', 'INSULAR']
+    const maps = regionOrder.map((region) => (data.maps || []).find((map) => (
+      String(map.region || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+      === region.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    ))).filter(Boolean)
+    if (!maps.length) return [title, paragraphFromSegments([[data.text, false]])]
+
+    const cellWidth = Math.floor(CONTENT_WIDTH_DXA / maps.length)
+    const remainder = CONTENT_WIDTH_DXA - cellWidth * maps.length
+    const mapRow = new TableRow({
+      cantSplit: true,
+      children: maps.map((map, index) => {
+        const width = cellWidth + (index === maps.length - 1 ? remainder : 0)
+        const size = fittedImageSize(map.aspectRatio, 150, 245)
+        return new TableCell({
+          children: [
+            new Paragraph({
+              children: [textRun(map.region, true, { size: 16, color: COLORS.navy })],
+              alignment: AlignmentType.CENTER,
+              spacing: { before: 0, after: 45 },
+              keepNext: true,
+            }),
+            new Paragraph({
+              children: [new ImageRun({ type: 'png', data: map.image, transformation: size })],
+              alignment: AlignmentType.CENTER,
+              spacing: { before: 0, after: 0 },
+            }),
+          ],
+          width: { size: width, type: WidthType.DXA },
+          verticalAlign: VerticalAlign.TOP,
+          margins: { top: 25, bottom: 25, left: 20, right: 20 },
+          borders: BORDERLESS,
+        })
+      }),
     })
-    return children
+    const mapGrid = new Table({
+      rows: [mapRow],
+      width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
+      columnWidths: maps.map((_map, index) => cellWidth + (index === maps.length - 1 ? remainder : 0)),
+      layout: TableLayoutType.FIXED,
+      alignment: AlignmentType.CENTER,
+      borders: BORDERLESS,
+    })
+    return [title, paragraphFromSegments([[data.text, false]], { keepNext: true }), mapGrid]
   }
 
   const textParagraphs = String(data.text)
@@ -1110,7 +1168,7 @@ function hydrometeorologyContent(data) {
 }
 
 export async function buildEventosLluviasWord({
-  items = [], tipoLluviasItems = [], asistenciaItems = [], asistenciaSNDGIRDItems = [], alojamientosItems = [], alojamientosCerradosItems = [],
+  items = [], tipoLluviasItems = [], asistenciaItems = [], asistenciaSNDGIRDItems = [], alojamientosItems = [], alojamientosCerradosItems = [], alojamientosImplementadosItems = [],
   eventosMesItems = [], viasCategoriaItems = [], dpaTotals = null, sitrepNumber = null, affectationLevel = null,
   hydrometeorology = null, waterBodiesOverflowed = [], waterBodiesRising = [], alertDeclarations = [], emergencyDeclarations = [],
   nationalCoeItems = [], provincialCoeItems = [], municipalCoeItems = [], parishCoeItems = [], highImpactEvents = [],
@@ -1178,7 +1236,9 @@ export async function buildEventosLluviasWord({
     children.push(sourceLine(metadata))
   }
 
-  const eventTypeColumns = EVENT_TYPES.filter((type) => has(tipoLluviasItems, type.key) && sum(tipoLluviasItems, type.key) !== 0)
+  const eventTypeColumns = EVENT_TYPES
+    .filter((type) => has(tipoLluviasItems, type.key) && sum(tipoLluviasItems, type.key) !== 0)
+    .sort((left, right) => sum(tipoLluviasItems, right.key) - sum(tipoLluviasItems, left.key))
   const totalEventCount = sum(tipoLluviasItems, 'NumeroEventos')
   const maxProvinceEventCount = Math.max(1, ...tipoLluviasItems.map((row) => n(row?.NumeroEventos)))
   const maxEventTypeTotal = Math.max(1, ...eventTypeColumns.map((type) => sum(tipoLluviasItems, type.key)))
@@ -1223,6 +1283,8 @@ export async function buildEventosLluviasWord({
     })
     eventRows.push(totalRow, percentageRow)
     addTable(children, dataTable(eventColumns, eventRows, {
+      tableWidth: Math.round(CONTENT_WIDTH_DXA * 0.85),
+      alignment: AlignmentType.CENTER,
       totalRowIndex: eventRows.length - 2,
       fontSize: eventColumns.length > 12 ? 12: 11,
       headerFontSize: eventColumns.length > 12 ? 9 : 11,
@@ -1253,9 +1315,19 @@ export async function buildEventosLluviasWord({
     children.push(sourceLine(metadata))
   }
 
+  const maxDetailEvents = Math.max(1, ...items.map((row) => n(row?.NumeroEventos)))
+  const maxDetailPeople = Math.max(1, ...items.map((row) => n(row?.ImpactadasPersonas)))
   const detailColumns = [{ key: '__no__', label: 'No.', format: (_value, _row, index) => index + 1 },
     ...DETAIL_COLUMNS.filter((column) => column.key === 'Provincia' || (has(items, column.key) && sum(items, column.key) !== 0))
-      .map((column) => ({ ...column, format: column.type === 'text' ? undefined : (value) => fmt(value, column.type === 'decimal') }))]
+      .map((column) => ({
+        ...column,
+        format: column.type === 'text' ? undefined : (value) => fmt(value, column.type === 'decimal'),
+        fill: column.key === 'NumeroEventos'
+          ? (value) => percentageHeatColor(value, maxDetailEvents)
+          : column.key === 'ImpactadasPersonas'
+            ? (value) => percentageHeatColor(value, maxDetailPeople)
+            : undefined,
+      }))]
   if (items.length && detailColumns.length > 2) {
     children.push(sectionTitle(report24h ? '4.2' : '4', 'Detalle de afectaciones por provincias'))
     const sorted = [...items].sort((a, b) => n(b?.ImpactadasPersonas) - n(a?.ImpactadasPersonas) || n(b?.NumeroEventos) - n(a?.NumeroEventos))
@@ -1279,7 +1351,7 @@ export async function buildEventosLluviasWord({
     if (!report24h) {
       children.push(subsectionTitle('Número de eventos vs Personas Impactadas por provincia', COLORS.gray))
       const provinceChartRows = [...items]
-        .map((row) => ({ label: String(row?.Provincia || ''), events: n(row?.NumeroEventos), people: n(row?.ImpactadasPersonas) }))
+        .map((row) => ({ label: provinceChartLabel(row?.Provincia), events: n(row?.NumeroEventos), people: n(row?.ImpactadasPersonas) }))
         .filter((row) => row.label && (row.events || row.people))
         .sort((a, b) => b.people - a.people || b.events - a.events)
       const provinceChart = chartImage(provinceChartRows, 'Número de eventos vs Personas Impactadas por provincia', 'events', 'people', 'Nro. de eventos', 'Personas Impactadas')
@@ -1303,7 +1375,7 @@ export async function buildEventosLluviasWord({
     const maxMonthlyEvents = Math.max(0, ...monthRows.map((row) => totalEvents ? row.events / totalEvents * 100 : 0))
     const maxMonthlyPeople = Math.max(0, ...monthRows.map((row) => totalPeople ? row.people / totalPeople * 100 : 0))
     children.push(subsectionTitle('Recurrencia de eventos vs personas impactadas por mes', COLORS.gray))
-    const monthlyChart = chartImage(monthRows.map((row) => ({ ...row, label: row.month })), 'Recurrencia de eventos vs personas impactadas por mes', 'events', 'people', 'Nro. de eventos', 'Personas Impactadas')
+    const monthlyChart = chartImage(monthRows.map((row) => ({ ...row, label: row.month })), 'Recurrencia de eventos vs personas impactadas por mes', 'events', 'people', 'Nro. de eventos', 'Personas Impactadas', { horizontalLabels: true })
     const columns = [
       { key: 'month', label: 'Mes', type: 'text' }, { key: 'events', label: 'Número de eventos', type: 'number', integer: true },
       { key: 'people', label: 'Personas impactadas', type: 'number', integer: true },
@@ -1371,16 +1443,40 @@ export async function buildEventosLluviasWord({
     children.push(sourceLine(metadata))
   }
 
-  const addShelter = (number, title, shelterItems, priority, action, totalKeys = []) => {
+  const addShelter = (number, title, shelterItems, priority, action, totalKeys = [], options = {}) => {
     if (!shelterItems.length) return
     children.push(sectionTitle(number, title))
-    children.push(paragraphFromSegments([['Desde el ', false], [`${metadata.startTitle}, `, true], [`se han ${action} `, false], [`${fmt(shelterItems.length)} alojamientos temporales.`, true]]))
-    addGenericTable(children, shelterItems, priority, totalKeys.length > 0, { totalKeys })
+    children.push(paragraphFromSegments(options.introSegments || [['Desde el ', false], [`${metadata.startTitle}, `, true], [`se han ${action} `, false], [`${fmt(shelterItems.length)} alojamientos temporales.`, true]]))
+    const numberedItems = shelterItems.map((row, index) => ({ __no__: index + 1, ...row }))
+    addGenericTable(children, numberedItems, ['__no__', ...priority], totalKeys.length > 0, {
+      totalKeys,
+      columns: options.columns,
+      widths: shelterTableWidths,
+    })
     children.push(sourceLine(metadata))
   }
   if (!report24h) {
     addShelter('5.1', 'Alojamientos Temporales Abiertos', alojamientosItems, ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura', 'Familias', 'Personas'], 'activado', ['Familias', 'Personas'])
     addShelter('5.2', 'Alojamientos Temporales Cerrados', alojamientosCerradosItems, ['Provincia', 'Canton', 'Parroquia', 'Tipo', 'Nombre', 'Apertura', 'Cierre'], 'cerrado')
+    addShelter(
+      '5.3',
+      'Alojamientos Temporales Implementados',
+      alojamientosImplementadosItems,
+      ['Provincia', 'Canton', 'Parroquia', 'Alojamiento', 'fechaImplementacion'],
+      'implementado',
+      [],
+      {
+        introSegments: [['Adicional, se encuentran implementados ', false], [`${fmt(alojamientosImplementadosItems.length)} alojamientos temporales:`, true]],
+        columns: [
+          { key: '__no__', label: 'No.', type: 'number' },
+          { key: 'Provincia', label: 'Provincia', type: 'text' },
+          { key: 'Canton', label: 'Cantón', type: 'text' },
+          { key: 'Parroquia', label: 'Parroquia', type: 'text' },
+          { key: 'Alojamiento', label: 'Alojamiento temporal', type: 'text' },
+          { key: 'fechaImplementacion', label: 'Fecha de implementación', type: 'text', format: reportDateOnly },
+        ],
+      },
+    )
   }
 
   if (!report24h && ((asistenciaItems.length && sum(asistenciaItems, 'Total Bienes')) || (asistenciaSNDGIRDItems.length && sum(asistenciaSNDGIRDItems, 'Total Bienes')))) {
@@ -1508,7 +1604,13 @@ export async function buildEventosLluviasWord({
         group.actions.forEach((action, actionIndex) => {
           if (actionIndex === 0 && group.date) segments.push([`${group.date}: `, true])
           if (action.institution) segments.push([`${action.institution} `, true])
-          if (action.description) segments.push([`${action.description}${actionIndex < group.actions.length - 1 ? ' ' : ''}`, false])
+          if (action.description) segments.push([action.description, false])
+          if (action.finalized) {
+            segments.push({ text: ' (', color: COLORS.black })
+            segments.push({ text: 'finalizado', color: COLORS.green })
+            segments.push({ text: ').', color: COLORS.black })
+          }
+          if (actionIndex < group.actions.length - 1) segments.push([' ', false])
         })
         children.push(paragraphFromSegments(segments, { bullet: true }))
       })

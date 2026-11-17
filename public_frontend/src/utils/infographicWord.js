@@ -200,7 +200,7 @@ function provinceTable(options) {
 function hydro(options) {
   const data = options.hydrometeorology; if (!data) return [p([run('No se adjuntó boletín hidrometeorológico.', { color: C.gray })])]
   const images = data.type === 'forecast' ? (data.maps || []).map((map) => [map.region, map.image]) : [[data.label || '', data.mapImage || data.images?.[0] || data.tableImage]].filter(([, value]) => value)
-  const rawText = String(data.text || data.label || 'Boletín procesado.').replace(/\r\n?/g, '\n').trim()
+  const rawText = String(data.detailText || data.text || data.label || 'Boletín procesado.').replace(/\r\n?/g, '\n').trim()
   let blocks = rawText.split(/\n\s*\n|\n+/).map((value) => value.trim()).filter(Boolean)
   if (blocks.length === 1) blocks = rawText.split(/(?<=\.)\s+(?=(?:Entre|Adicional(?:mente)?|Durante|Desde|Para|En la región)\b)/i).map((value) => value.trim()).filter(Boolean)
   const descriptions = blocks.map((value) => p([run(value, { size: 16 })], { after: 90 }))

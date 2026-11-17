@@ -144,6 +144,16 @@ def get_alojamientos_temporales_cerrados_por_lluvias(desde, hasta):
         raise AfectacionesServiceError("Database query failed", details=details) from db_error
 
 
+def get_alojamientos_temporales_implementados_por_lluvias(desde, hasta):
+    query = "CALL dmeva.`spSitRepNac-Lluvias-ATI`(%s, %s, %s)"
+    params = [desde, hasta, ""]
+    try:
+        return _run_query(query, params)
+    except pymysql.MySQLError as db_error:
+        details = {"mysql_error": str(db_error), "desde": desde, "hasta": hasta}
+        raise AfectacionesServiceError("Database query failed", details=details) from db_error
+
+
 def get_eventos_por_lluvias_km_vias_por_categoria(desde, hasta):
     query = "CALL dmeva.`spSitRepNac-Lluvias-KMViasCtg`(%s, %s)"
     params = [desde, hasta]

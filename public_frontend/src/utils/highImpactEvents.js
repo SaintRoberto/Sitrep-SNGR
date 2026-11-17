@@ -29,6 +29,20 @@ function responseSentence(value) {
   return `${text}.`
 }
 
+function responseDescription(activity, institution) {
+  const description = removeRepeatedInstitutionPrefix(institution, activity?.Descripcion)
+  const normalizedState = String(activity?.Estado ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+  const finalized = /^finalizad[oa]$/.test(normalizedState)
+  return {
+    description: finalized ? String(description).trim().replace(/[.\s]+$/, '') : responseSentence(description),
+    finalized,
+  }
+}
+
 function removeRepeatedInstitutionPrefix(institution, description) {
   const institutionText = String(institution ?? '').trim()
   const descriptionText = String(description ?? '').trim()
@@ -65,10 +79,11 @@ export function highImpactResponseActionGroups(event) {
     const date = formatHighImpactEventDate(activity?.Fecha)
     if (!groups.has(date)) groups.set(date, { date, actions: [] })
     const institution = String(activity?.Institucion ?? '').trim()
-    const description = responseSentence(removeRepeatedInstitutionPrefix(institution, activity?.Descripcion))
+    const response = responseDescription(activity, institution)
     groups.get(date).actions.push({
       institution,
-      description,
+      description: response.description,
+      finalized: response.finalized,
     })
   })
   return [...groups.values()].filter((group) => group.actions.some((action) => action.institution || action.description))
@@ -77,7 +92,8 @@ export function highImpactResponseActionGroups(event) {
 export function highImpactResponseActionLines(event) {
   return highImpactResponseActionGroups(event).map((group) => group.actions.map((action, index) => {
     const date = index === 0 && group.date ? `${group.date}:` : ''
-    return [date, action.institution, action.description].filter(Boolean).join(' ')
+    const description = `${action.description}${action.finalized ? ' (finalizado).' : ''}`
+    return [date, action.institution, description].filter(Boolean).join(' ')
   }).join(' '))
 }
 

@@ -141,6 +141,35 @@ function extractWarningText(pageData) {
   return [introduction, ...paragraphs, affectedText].filter(Boolean).join('\n\n')
 }
 
+function extractGraphicWarningDetail(pageData) {
+  const { canvas, items } = pageData
+  const whatCanHappen = findText(items, /QU[EÉ] PUEDE PASAR/i)
+  const affectedZones = findText(items, /ZONAS AFECTADAS/i)
+  const firstAnchor = whatCanHappen || affectedZones
+  const left = firstAnchor
+    ? Math.max(canvas.width * 0.38, firstAnchor.x - canvas.width * 0.01)
+    : canvas.width * 0.43
+  const top = firstAnchor
+    ? Math.max(0, firstAnchor.y - firstAnchor.height * 0.7)
+    : canvas.height * 0.14
+  let detail = textInBox(items, {
+    left,
+    right: canvas.width * 0.975,
+    top,
+    bottom: canvas.height * 0.84,
+  })
+  if (!detail) {
+    detail = pageData.text.match(/(?:¿?QU[EÉ] PUEDE PASAR\??|ZONAS AFECTADAS)(.+?)(?=Elaborado por|Fuente:|www\.|$)/i)?.[0] || ''
+  }
+  return normalizeText(detail)
+    .replace(/\s*[•▪]\s*/g, '\n• ')
+    .replace(/\s*(¿?QU[EÉ] PUEDE PASAR\??)\s*/gi, '\n$1\n')
+    .replace(/\s*(ZONAS AFECTADAS)\s*/gi, '\n$1\n')
+    .replace(/\n(?:Elaborado por|Fuente:|www\.).*$/is, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 function cropWarning(pageData) {
   const { canvas, items } = pageData
   const description = findText(items, /^DESCRIPCI[ÓO]N$/i)
@@ -322,6 +351,7 @@ async function processGraphicWarning(pdf, metadata, filename) {
   map.image = map.canvas.toDataURL('image/png')
   const table = relativeCrop(cover.canvas, { left: 0.415, top: 0.655, right: 0.975, bottom: 0.875 })
   const detailImage = relativeCrop(detail.canvas, { left: 0.025, top: 0.19, right: 0.975, bottom: 0.714 })
+  const detailText = extractGraphicWarningDetail(detail)
   const identity = `${filename} ${metadata?.info?.Title || ''}`
   const number = identity.match(/(?:advertencia[^\d]*)?(\d{1,4})/i)?.[1]
   return {
@@ -335,6 +365,7 @@ async function processGraphicWarning(pdf, metadata, filename) {
     mapAspectRatio: map.aspectRatio,
     detailImage: detailImage.image,
     detailAspectRatio: detailImage.aspectRatio,
+    detailText,
     tableImage: table.image,
     tableAspectRatio: table.aspectRatio,
   }

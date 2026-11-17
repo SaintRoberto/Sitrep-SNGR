@@ -17,6 +17,7 @@ import {
   impactLegend,
   normalizeProvinceName,
   provinceImpactValue,
+  provinceChartLabel,
   provincePathData,
   shortProvinceLabel,
 } from './utils/impactMap.js'
@@ -39,6 +40,7 @@ const ENDPOINTS = {
   asistenciaHumanitariaLluvias: '/api/public/asistencia-humanitaria-por-sngr-por-lluvias',
   alojamientosTemporalesLluvias: '/api/public/alojamientos-temporales-abiertos-por-lluvias',
   alojamientosTemporalesCerradosLluvias: '/api/public/alojamientos-temporales-cerrados-por-lluvias',
+  alojamientosTemporalesImplementadosLluvias: '/api/public/alojamientos-temporales-implementados-por-lluvias',
   asistenciaHumanitariaLluviasSNDGIRD: '/api/public/asistencia-humanitaria-por-sndgird-por-lluvias',
   personasFallecidasLluvias: '/api/public/personas-fallecidas-por-lluvias',
   getEventosporLluviasCategoria: '/api/public/eventos-por-lluvias-km-vias-por-categoria',
@@ -101,10 +103,10 @@ const DETAIL_COLS = [
   ['__no__', 'No.'],
   ['Provincia', 'Provincia'],
   ['NumeroEventos', 'Nro. Eventos'],
-  ['ImpactadasPersonas', 'Personas Impactadas'],
-  ['Extraviados', 'Personas Extraviadas'],
   ['Fallecidos', 'Personas Fallecidas'],
   ['Heridos', 'Personas Heridas'],
+  ['ImpactadasPersonas', 'Personas Impactadas'],
+  ['Extraviados', 'Personas Extraviadas'],
   ['AfectadosPersonas', 'Personas Afectadas'],
   ['DamnificadosPersonas', 'Personas Damnificadas'],
   ['AfectadosFamilias', 'Familias Afectadas'],
@@ -291,7 +293,7 @@ function withTotalsRow(columns, rows) {
     }
 
     if (key === 'Provincia' || key === 'Provincias') {
-      totalRow[key] = 'Total general'
+      totalRow[key] = 'Total'
       return
     }
 
@@ -407,6 +409,26 @@ function buildDynamicCols(items, priority = ['Provincia', 'NumeroEventos', 'Prov
     ['__no__', 'No.'],
     ...ordered.map((key) => [key, prettifyLabel(key)]),
   ]
+}
+
+function shelterColumnWeights(columns) {
+  const weights = columns.map(([key]) => {
+    if (key === '__no__') return 0.35
+    if (key === 'Provincia') return 0.75
+    if (['Parroquia', 'Nombre', 'Alojamiento'].includes(key)) return 2.1
+    return 1
+  })
+  const total = weights.reduce((sumValue, weight) => sumValue + weight, 0)
+  return weights.map((weight) => `${(weight / total * 100).toFixed(3)}%`)
+}
+
+function shelterExcelColumnWidths(columns) {
+  return columns.map(([key]) => {
+    if (key === '__no__') return 32
+    if (key === 'Provincia') return 78
+    if (['Parroquia', 'Nombre', 'Alojamiento'].includes(key)) return 165
+    return 92
+  })
 }
 
 function buildPuntosImportantes(items, analysisRows, tipo, dpaTotals = null, desde = '', hasta = '') {
@@ -543,7 +565,7 @@ function escapeXml(value) {
     .replaceAll("'", '&apos;')
 }
 
-function downloadExcelXml(filename, sheetName, columns, rows) {
+function downloadExcelXml(filename, sheetName, columns, rows, options = {}) {
   const headerCells = columns
     .map(([, label]) => `<Cell ss:StyleID="sHeader"><Data ss:Type="String">${escapeXml(label)}</Data></Cell>`)
     .join('')
@@ -557,7 +579,18 @@ function downloadExcelXml(filename, sheetName, columns, rows) {
           const isNumber = Number.isFinite(asNum) && String(raw ?? '').trim() !== ''
           const type = isNumber ? 'Number' : 'String'
           const value = isNumber ? String(asNum) : escapeXml(raw ?? '')
-          const style = isNumber ? 'sNumber' : 'sCell'
+          const heatMaximum = options.heatMaximums?.[key]
+          const heatValue = n(row?.[key])
+          const heatStyle = !row.__isTotal__ && isNumber && heatMaximum
+            ? {
+                'pct-low': 'sHeatLow',
+                'pct-mid': 'sHeatYellowGreen',
+                'pct-yellow': 'sHeatMedium',
+                'pct-high': 'sHeatHigh',
+                'pct-very-high': 'sHeatMaximum',
+              }[getPctClass(heatValue, heatMaximum)]
+            : null
+          const style = heatStyle || (isNumber ? 'sNumber' : 'sCell')
           return `<Cell ss:StyleID="${style}"><Data ss:Type="${type}">${value}</Data></Cell>`
         })
         .join('')
@@ -609,9 +642,15 @@ function downloadExcelXml(filename, sheetName, columns, rows) {
     <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
    </Borders>
   </Style>
+  <Style ss:ID="sHeatLow" ss:Parent="sNumber"><Font ss:Bold="1"/><Interior ss:Color="#42BA3C" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="sHeatYellowGreen" ss:Parent="sNumber"><Font ss:Bold="1"/><Interior ss:Color="#B8EC8A" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="sHeatMedium" ss:Parent="sNumber"><Font ss:Bold="1"/><Interior ss:Color="#FFE063" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="sHeatHigh" ss:Parent="sNumber"><Font ss:Bold="1"/><Interior ss:Color="#FFA05A" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="sHeatMaximum" ss:Parent="sNumber"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#FF3150" ss:Pattern="Solid"/></Style>
  </Styles>
  <Worksheet ss:Name="${escapeXml(sheetName)}">
   <Table>
+   ${(options.columnWidths || []).map((width) => `<Column ss:AutoFitWidth="0" ss:Width="${width}"/>`).join('')}
    <Row>${headerCells}</Row>
    ${bodyRows}
   </Table>
@@ -768,18 +807,18 @@ function formatDateNumeric(value) {
   }) : String(value || '')
 }
 
-function EventsPeopleChart({ title, rows }) {
+function EventsPeopleChart({ title, rows, horizontalLabels = false }) {
   if (!rows.length) return null
 
   const width = Math.max(920, rows.length * 54 + 170)
-  const height = 590
+  const height = horizontalLabels ? 525 : 590
   const plot = { left: 66, top: 66, right: width - 82, bottom: 420 }
   const plotWidth = plot.right - plot.left
   const plotHeight = plot.bottom - plot.top
   const maxEvents = Math.max(1, ...rows.map((row) => n(row.events)))
   const maxPeople = Math.max(1, ...rows.map((row) => n(row.people)))
   const slot = plotWidth / rows.length
-  const barWidth = Math.min(48, Math.max(12, slot * 0.46))
+  const barWidth = Math.min(84, Math.max(22, slot * 0.72))
   const points = rows.map((row, index) => ({
     x: plot.left + slot * index + slot / 2,
     y: plot.bottom - n(row.people) / maxPeople * plotHeight,
@@ -822,13 +861,19 @@ function EventsPeopleChart({ title, rows }) {
               <text className="chart-bar-value" x={x} y={Math.max(plot.top + 12, plot.bottom - barHeight - 7)} textAnchor="middle">
                 {formatInt(row.events)}
               </text>
-              <text
-                className="chart-category-label"
-                transform={`translate(${x + 3} ${plot.bottom + 43}) rotate(-58)`}
-                textAnchor="end"
-              >
-                {row.label}
-              </text>
+              {horizontalLabels ? (
+                <text className="chart-category-label chart-category-label-horizontal" x={x} y={plot.bottom + 34} textAnchor="middle">
+                  {row.label}
+                </text>
+              ) : (
+                <text
+                  className="chart-category-label"
+                  transform={`translate(${x + 3} ${plot.bottom + 43}) rotate(-58)`}
+                  textAnchor="end"
+                >
+                  {row.label}
+                </text>
+              )}
             </g>
           )
         })}
@@ -836,18 +881,29 @@ function EventsPeopleChart({ title, rows }) {
         <polyline className="chart-people-line" points={linePoints} />
         {points.map((point, index) => {
           const label = formatInt(rows[index].people)
-          const labelWidth = Math.max(18, label.length * 7 + 10)
-          const labelY = Math.min(plot.bottom + 28, point.y + 28)
+          const labelWidth = Math.max(26, label.length * 8.5 + 16)
+          const eventBarHeight = n(rows[index].events) / maxEvents * plotHeight
+          const eventValueY = Math.max(plot.top + 12, plot.bottom - eventBarHeight - 7)
+          let labelX = point.x
+          let labelY = Math.min(plot.bottom + 28, point.y + 28)
+          const labelsMayOverlap = Math.abs(labelY - eventValueY) < 40
+          if (labelsMayOverlap) {
+            const sideGap = 9
+            const rightLabelX = point.x + sideGap + labelWidth / 2
+            const leftLabelX = point.x - sideGap - labelWidth / 2
+            labelX = rightLabelX + labelWidth / 2 <= plot.right ? rightLabelX : leftLabelX
+            labelY = Math.min(plot.bottom + 5, Math.max(plot.top + 20, point.y + 5))
+          }
           return (
             <g key={`point-${rows[index].label}-${index}`}>
               <circle className="chart-people-point" cx={point.x} cy={point.y} r="5" />
-              <rect className="chart-people-label-bg" x={point.x - labelWidth / 2} y={labelY - 16} width={labelWidth} height="22" />
-              <text className="chart-people-value" x={point.x} y={labelY} textAnchor="middle">{label}</text>
+              <rect className="chart-people-label-bg" x={labelX - labelWidth / 2} y={labelY - 20} width={labelWidth} height="28" rx="2" />
+              <text className="chart-people-value" x={labelX} y={labelY} textAnchor="middle">{label}</text>
             </g>
           )
         })}
 
-        <g className="chart-legend" transform={`translate(${width / 2 - 175} 558)`}>
+        <g className="chart-legend" transform={`translate(${width / 2 - 175} ${horizontalLabels ? 500 : 558})`}>
           <rect className="chart-event-bar" x="0" y="-11" width="26" height="12" />
           <text x="36" y="0">Nro. de eventos</text>
           <line className="chart-people-line" x1="205" y1="-5" x2="245" y2="-5" />
@@ -971,6 +1027,7 @@ function App() {
   const [showRawJson, setShowRawJson] = useState(false)
   const [alojamientosItems, setAlojamientosItems] = useState([])
   const [alojamientosCerradosItems, setAlojamientosCerradosItems] = useState([])
+  const [alojamientosImplementadosItems, setAlojamientosImplementadosItems] = useState([])
   const [asistenciaSNDGIRDItems, setAsistenciaSNDGIRDItems] = useState([])
   const [personasFalleciasItems, setpersonasFalleciasItems] = useState([])
   const [eventosMesItems, setEventosMesItems] = useState([])
@@ -999,7 +1056,6 @@ function App() {
     const query = params.toString()
     return query ? `${base}?${query}` : base
   }, [desde, hasta])
-  const section7StartDate = `${String(hasta || desde || new Date().getFullYear()).slice(0, 4)}-01-01T00:00`
   const requestUrl = useMemo(() => buildApiUrl(ENDPOINTS[tipo]), [buildApiUrl, tipo])
   const buildHighImpactEventsUrl = useCallback(() => {
     const url = buildApiUrl(ENDPOINTS.eventosAltoImpactoLluvias)
@@ -1088,20 +1144,26 @@ function App() {
   }, [items])
   const provinceChartRows = useMemo(() => items
     .map((row) => ({
-      label: String(row?.Provincia || '').trim(),
+      label: provinceChartLabel(row?.Provincia),
       events: n(row?.NumeroEventos),
       people: n(row?.ImpactadasPersonas),
     }))
     .filter((row) => row.label && (row.events || row.people))
     .sort((a, b) => b.people - a.people || b.events - a.events), [items])
   const provinceImpactSummary = useMemo(() => buildProvinceImpactMap(items), [items])
+  const detailMaxEvents = useMemo(() => Math.max(0, ...items.map((row) => n(row?.NumeroEventos))), [items])
   const tipoLluviasRowsOrdered = useMemo(() => sortByNumeroEventosDesc(tipoLluviasItems), [tipoLluviasItems])
   const section3Cols = useMemo(() => {
     if (tipo !== 'lluvias') return currentDetailCols
-    const eventTypeColumns = TIPO_LLUVIAS_COLS.filter(([key]) => (
-      !['Provincia', 'NumeroEventos'].includes(key)
-      && tipoLluviasRowsOrdered.reduce((total, row) => total + n(row?.[key]), 0) !== 0
-    ))
+    const eventTypeColumns = TIPO_LLUVIAS_COLS
+      .filter(([key]) => (
+        !['Provincia', 'NumeroEventos'].includes(key)
+        && tipoLluviasRowsOrdered.reduce((total, row) => total + n(row?.[key]), 0) !== 0
+      ))
+      .sort(([leftKey], [rightKey]) => (
+        tipoLluviasRowsOrdered.reduce((total, row) => total + n(row?.[rightKey]), 0)
+        - tipoLluviasRowsOrdered.reduce((total, row) => total + n(row?.[leftKey]), 0)
+      ))
     return [['__no__', 'No.'], ['Provincia', 'Provincia'], ...eventTypeColumns, ['__total__', 'Total']]
   }, [tipo, currentDetailCols, tipoLluviasRowsOrdered])
   const section3BaseRows = useMemo(() => (tipo === 'lluvias'
@@ -1110,7 +1172,7 @@ function App() {
   const section3RowsWithTotals = useMemo(() => {
     if (tipo !== 'lluvias') return withTotalsRow(section3Cols, section3BaseRows)
     const totalEvents = section3BaseRows.reduce((total, row) => total + n(row?.NumeroEventos), 0)
-    const totalRow = { __isTotal__: true, __no__: '', Provincia: 'Total general', __total__: totalEvents }
+    const totalRow = { __isTotal__: true, __no__: '', Provincia: 'Total', __total__: totalEvents }
     const percentageRow = { __isPercentage__: true, __no__: '', Provincia: 'Porcentaje', __total__: 100 }
     section3Cols.slice(2, -1).forEach(([key]) => {
       const eventTypeTotal = section3BaseRows.reduce((total, row) => total + n(row?.[key]), 0)
@@ -1318,6 +1380,30 @@ function App() {
 
   const section5AlojamientosCerradosRows = useMemo(() => withTotalsRow(section5OrderedColsCerrados, section5RowsCerrados), [section5OrderedColsCerrados, section5RowsCerrados])
   const shouldShowSection5Closed = useMemo(() => section5RowsCerrados.length > 0, [section5RowsCerrados.length])
+  const section5RowsImplementados = useMemo(() => {
+    return alojamientosImplementadosItems.map((row, idx) => ({
+      __no__: idx + 1,
+      ...row,
+      ...(row?.fechaImplementacion !== undefined
+        ? { fechaImplementacion: formatDateOnlyYmd(row.fechaImplementacion) }
+        : {}),
+    }))
+  }, [alojamientosImplementadosItems])
+  const section5OrderedColsImplementados = useMemo(
+    () => buildDynamicCols(alojamientosImplementadosItems, [
+      'Provincia',
+      'Canton',
+      'Parroquia',
+      'Alojamiento',
+      'fechaImplementacion',
+    ]).map(([key, label]) => [key, {
+      Canton: 'Cantón',
+      Alojamiento: 'Alojamiento temporal',
+      fechaImplementacion: 'Fecha de implementación',
+    }[key] || label]),
+    [alojamientosImplementadosItems]
+  )
+  const shouldShowSection5Implemented = section5RowsImplementados.length > 0
   const alojamientosAnalisis = useMemo(() => {
     const anioActual = new Date().getFullYear()
     const totalAbiertos = alojamientosItems.length
@@ -1510,24 +1596,26 @@ function App() {
         const asistenciaUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluvias)
         const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias)
         const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias)
+        const alojamientosImplementadosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesImplementadosLluvias)
         const asistenciaSNDGIRDUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluviasSNDGIRD)
         const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias)
         const eventosMesUrl = buildApiUrl(ENDPOINTS.eventosLluviasTotalPorMes)
         const viasCategoriaUrl = buildApiUrl(ENDPOINTS.getEventosporLluviasCategoria)
         const cuerposHidricosDesbordadosUrl = buildApiUrl(ENDPOINTS.cuerposHidricosDesbordados)
         const cuerposHidricosTendenciaUrl = buildApiUrl(ENDPOINTS.cuerposHidricosTendencia)
-        const nivelesAlertaUrl = buildApiUrl(ENDPOINTS.nivelesAlertaLluvias, section7StartDate)
-        const declaratoriasEmergenciaUrl = buildApiUrl(ENDPOINTS.declaratoriasEmergenciaLluvias, section7StartDate)
-        const coeUrl = (tipoCoe) => `${buildApiUrl(ENDPOINTS.coesActivadosLluvias, section7StartDate)}&tipo=${encodeURIComponent(tipoCoe)}`
+        const nivelesAlertaUrl = buildApiUrl(ENDPOINTS.nivelesAlertaLluvias)
+        const declaratoriasEmergenciaUrl = buildApiUrl(ENDPOINTS.declaratoriasEmergenciaLluvias)
+        const coeUrl = (tipoCoe) => `${buildApiUrl(ENDPOINTS.coesActivadosLluvias)}&tipo=${encodeURIComponent(tipoCoe)}`
         const eventosAltoImpactoUrl = buildHighImpactEventsUrl()
 
-        const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAlojamientos, responseAlojamientosCerrados, responseAsistenciaSNDGIRD, responsePersonasFallecidas, responseEventosMes, responseViasCategoria, responseCuerposDesbordados, responseCuerposTendencia, responseNivelesAlerta, responseDeclaratoriasEmergencia, responseCoeNacional, responseCoeProvincial, responseCoeMunicipal, responseCopae, responseEventosAltoImpacto] = await Promise.all([
+        const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAlojamientos, responseAlojamientosCerrados, responseAlojamientosImplementados, responseAsistenciaSNDGIRD, responsePersonasFallecidas, responseEventosMes, responseViasCategoria, responseCuerposDesbordados, responseCuerposTendencia, responseNivelesAlerta, responseDeclaratoriasEmergencia, responseCoeNacional, responseCoeProvincial, responseCoeMunicipal, responseCopae, responseEventosAltoImpacto] = await Promise.all([
           fetch(requestUrl),
           fetch(tipoLluviasUrl),
           fetch(dpaTotalsUrl),
           fetch(asistenciaUrl),
           fetch(alojamientosUrl),
           fetch(alojamientosCerradosUrl),
+          fetch(alojamientosImplementadosUrl),
           fetch(asistenciaSNDGIRDUrl),
           fetch(personasFallecidasUrl),
           fetch(eventosMesUrl),
@@ -1543,13 +1631,14 @@ function App() {
           fetch(eventosAltoImpactoUrl)
 
         ])
-        const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAlojamientos, dataAlojamientosCerrados, dataAsistenciaSNDGIRD, dataPersonasFallecidas, dataEventosMes, dataViasCategoria, dataCuerposDesbordados, dataCuerposTendencia, dataNivelesAlerta, dataDeclaratoriasEmergencia, dataCoeNacional, dataCoeProvincial, dataCoeMunicipal, dataCopae, dataEventosAltoImpacto] = await Promise.all([
+        const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAlojamientos, dataAlojamientosCerrados, dataAlojamientosImplementados, dataAsistenciaSNDGIRD, dataPersonasFallecidas, dataEventosMes, dataViasCategoria, dataCuerposDesbordados, dataCuerposTendencia, dataNivelesAlerta, dataDeclaratoriasEmergencia, dataCoeNacional, dataCoeProvincial, dataCoeMunicipal, dataCopae, dataEventosAltoImpacto] = await Promise.all([
           responseMain.json(),
           responseTipos.json(),
           responseDpa.json(),
           responseAsistencia.json(),
           responseAlojamientos.json(),
           responseAlojamientosCerrados.json(),
+          responseAlojamientosImplementados.json(),
           responseAsistenciaSNDGIRD.json(),
           responsePersonasFallecidas.json(),
           responseEventosMes.json(),
@@ -1571,6 +1660,7 @@ function App() {
         if (!responseAsistencia.ok) throw new Error(dataAsistencia?.error || 'Error consultando asistencia humanitaria SNGR')
         if (!responseAlojamientos.ok) throw new Error(dataAlojamientos?.error || 'Error consultando alojamientos temporales')
         if (!responseAlojamientosCerrados.ok) throw new Error(dataAlojamientosCerrados?.error || 'Error consultando alojamientos temporales cerrados')
+        if (!responseAlojamientosImplementados.ok) throw new Error(dataAlojamientosImplementados?.error || 'Error consultando alojamientos temporales implementados')
         if (!responseAsistenciaSNDGIRD.ok) throw new Error(dataAsistenciaSNDGIRD?.error || 'Error consultando asistencia humanitaria SNDGIRD')
         if (!responsePersonasFallecidas.ok) throw new Error(dataPersonasFallecidas?.error || 'Error consultando personas fallecidas por lluvias')
         if (!responseEventosMes.ok) throw new Error(dataEventosMes?.error || 'Error consultando eventos por lluvias total por mes')
@@ -1596,6 +1686,7 @@ function App() {
           : (dataDpa?.items || [])[0] || null)
         setAlojamientosItems(filterRowsByProvince(dataAlojamientos?.items, selectedProvince))
         setAlojamientosCerradosItems(filterRowsByProvince(dataAlojamientosCerrados?.items, selectedProvince))
+        setAlojamientosImplementadosItems(filterRowsByProvince(dataAlojamientosImplementados?.items, selectedProvince))
         setAsistenciaSNDGIRDItems(filterRowsByProvince(dataAsistenciaSNDGIRD?.items, selectedProvince))
         setpersonasFalleciasItems(filterRowsByProvince(dataPersonasFallecidas?.items, selectedProvince))
         setEventosMesItems(filterRowsByProvince(dataEventosMes?.items, selectedProvince))
@@ -1622,6 +1713,7 @@ function App() {
         setDpaTotals(null)
         setAlojamientosItems([])
         setAlojamientosCerradosItems([])
+        setAlojamientosImplementadosItems([])
         setAsistenciaSNDGIRDItems([])
         setpersonasFalleciasItems([])
         setEventosMesItems([])
@@ -1643,6 +1735,7 @@ function App() {
       setDpaTotals(null)
       setAlojamientosItems([])
       setAlojamientosCerradosItems([])
+      setAlojamientosImplementadosItems([])
       setAsistenciaSNDGIRDItems([])
       setpersonasFalleciasItems([])
       setEventosMesItems([])
@@ -1693,17 +1786,18 @@ function App() {
       const asistenciaSNDGIRDUrl = buildApiUrl(ENDPOINTS.asistenciaHumanitariaLluviasSNDGIRD)
       const alojamientosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesLluvias)
       const alojamientosCerradosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesCerradosLluvias)
+      const alojamientosImplementadosUrl = buildApiUrl(ENDPOINTS.alojamientosTemporalesImplementadosLluvias)
       const personasFallecidasUrl = buildApiUrl(ENDPOINTS.personasFallecidasLluvias)
       const eventosMesUrl = buildApiUrl(ENDPOINTS.eventosLluviasTotalPorMes)
       const viasCategoriaUrl = buildApiUrl(ENDPOINTS.getEventosporLluviasCategoria)
       const cuerposHidricosDesbordadosUrl = buildApiUrl(ENDPOINTS.cuerposHidricosDesbordados)
       const cuerposHidricosTendenciaUrl = buildApiUrl(ENDPOINTS.cuerposHidricosTendencia)
-      const nivelesAlertaUrl = buildApiUrl(ENDPOINTS.nivelesAlertaLluvias, section7StartDate)
-      const declaratoriasEmergenciaUrl = buildApiUrl(ENDPOINTS.declaratoriasEmergenciaLluvias, section7StartDate)
-      const coeUrl = (tipoCoe) => `${buildApiUrl(ENDPOINTS.coesActivadosLluvias, section7StartDate)}&tipo=${encodeURIComponent(tipoCoe)}`
+      const nivelesAlertaUrl = buildApiUrl(ENDPOINTS.nivelesAlertaLluvias)
+      const declaratoriasEmergenciaUrl = buildApiUrl(ENDPOINTS.declaratoriasEmergenciaLluvias)
+      const coeUrl = (tipoCoe) => `${buildApiUrl(ENDPOINTS.coesActivadosLluvias)}&tipo=${encodeURIComponent(tipoCoe)}`
       const eventosAltoImpactoUrl = buildHighImpactEventsUrl()
 
-      const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAsistenciaSNDGIRD, responseAlojamientos, responseAlojamientosCerrados, responsePersonasFallecidas, responseEventosMes, responseViasCategoria, responseCuerposDesbordados, responseCuerposTendencia, responseNivelesAlerta, responseDeclaratoriasEmergencia, responseCoeNacional, responseCoeProvincial, responseCoeMunicipal, responseCopae, responseEventosAltoImpacto] = await Promise.all([
+      const [responseMain, responseTipos, responseDpa, responseAsistencia, responseAsistenciaSNDGIRD, responseAlojamientos, responseAlojamientosCerrados, responseAlojamientosImplementados, responsePersonasFallecidas, responseEventosMes, responseViasCategoria, responseCuerposDesbordados, responseCuerposTendencia, responseNivelesAlerta, responseDeclaratoriasEmergencia, responseCoeNacional, responseCoeProvincial, responseCoeMunicipal, responseCopae, responseEventosAltoImpacto] = await Promise.all([
         fetch(mainUrl),
         fetch(tipoLluviasUrl),
         fetch(dpaTotalsUrl),
@@ -1711,6 +1805,7 @@ function App() {
         fetch(asistenciaSNDGIRDUrl),
         fetch(alojamientosUrl),
         fetch(alojamientosCerradosUrl),
+        fetch(alojamientosImplementadosUrl),
         fetch(personasFallecidasUrl),
         fetch(eventosMesUrl),
         fetch(viasCategoriaUrl),
@@ -1724,7 +1819,7 @@ function App() {
         fetch(coeUrl('COPAE')),
         fetch(eventosAltoImpactoUrl)
       ])
-      const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAsistenciaSNDGIRD, dataAlojamientos, dataAlojamientosCerrados, dataPersonasFallecidas, dataEventosMes, dataViasCategoria, dataCuerposDesbordados, dataCuerposTendencia, dataNivelesAlerta, dataDeclaratoriasEmergencia, dataCoeNacional, dataCoeProvincial, dataCoeMunicipal, dataCopae, dataEventosAltoImpacto] = await Promise.all([
+      const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAsistenciaSNDGIRD, dataAlojamientos, dataAlojamientosCerrados, dataAlojamientosImplementados, dataPersonasFallecidas, dataEventosMes, dataViasCategoria, dataCuerposDesbordados, dataCuerposTendencia, dataNivelesAlerta, dataDeclaratoriasEmergencia, dataCoeNacional, dataCoeProvincial, dataCoeMunicipal, dataCopae, dataEventosAltoImpacto] = await Promise.all([
         responseMain.json(),
         responseTipos.json(),
         responseDpa.json(),
@@ -1732,6 +1827,7 @@ function App() {
         responseAsistenciaSNDGIRD.json(),
         responseAlojamientos.json(),
         responseAlojamientosCerrados.json(),
+        responseAlojamientosImplementados.json(),
         responsePersonasFallecidas.json(),
         responseEventosMes.json(),
         responseViasCategoria.json(),
@@ -1752,6 +1848,7 @@ function App() {
       if (!responseAsistenciaSNDGIRD.ok) throw new Error(dataAsistenciaSNDGIRD?.error || 'Error consultando asistencia humanitaria SNGR')
       if (!responseAlojamientos.ok) throw new Error(dataAlojamientos?.error || 'Error consultando alojamientos temporales')
       if (!responseAlojamientosCerrados.ok) throw new Error(dataAlojamientosCerrados?.error || 'Error consultando alojamientos temporales cerrados')
+      if (!responseAlojamientosImplementados.ok) throw new Error(dataAlojamientosImplementados?.error || 'Error consultando alojamientos temporales implementados')
       if (!responsePersonasFallecidas.ok) throw new Error(dataPersonasFallecidas?.error || 'Error consultando personas fallecidas por lluvias')
       if (!responseEventosMes.ok) throw new Error(dataEventosMes?.error || 'Error consultando eventos por lluvias total por mes')
       if (!responseViasCategoria.ok) throw new Error(dataViasCategoria?.error || 'Error consultando km de vías por categoría')
@@ -1795,6 +1892,7 @@ function App() {
         asistenciaSNDGIRDItems: filteredItems(dataAsistenciaSNDGIRD),
         alojamientosItems: filteredItems(dataAlojamientos),
         alojamientosCerradosItems: filteredItems(dataAlojamientosCerrados),
+        alojamientosImplementadosItems: filteredItems(dataAlojamientosImplementados),
         eventosMesItems: filteredItems(dataEventosMes),
         viasCategoriaItems: filteredItems(dataViasCategoria),
         waterBodiesOverflowed: filteredItems(dataCuerposDesbordados),
@@ -2375,7 +2473,18 @@ function App() {
             <p className="muted">{detalleAnalisis}</p>
             <button
               type="button"
-              onClick={() => downloadExcelXml(`detalle_${tipo}.xml`, 'DetalleAfectaciones', currentDetailCols, section5RowsWithTotals)}
+              onClick={() => downloadExcelXml(
+                `detalle_${tipo}.xml`,
+                'DetalleAfectaciones',
+                currentDetailCols,
+                section5RowsWithTotals,
+                {
+                  heatMaximums: {
+                    NumeroEventos: provinceImpactSummary.maximum,
+                    ImpactadasPersonas: provinceImpactSummary.maximum,
+                  },
+                }
+              )}
               disabled={!items.length}
             >
               Descargar Excel - Seccion 4.2
@@ -2391,8 +2500,8 @@ function App() {
                       {currentDetailCols.map(([key]) => (
                         <td
                           key={`${idx}-${key}`}
-                          className={!row.__isTotal__ && key === 'ImpactadasPersonas'
-                            ? impactCellClass(row[key], provinceImpactSummary.maximum)
+                          className={!row.__isTotal__ && ['NumeroEventos', 'ImpactadasPersonas'].includes(key)
+                            ? getPctClass(row[key], key === 'NumeroEventos' ? detailMaxEvents : provinceImpactSummary.maximum)
                             : ''}
                         >
                           {row[key] ?? '0'}
@@ -2449,6 +2558,7 @@ function App() {
                   <EventsPeopleChart
                     title="Recurrencia de eventos vs personas impactadas por mes"
                     rows={monthlyChartRows}
+                    horizontalLabels
                   />
                 )}
               </div>
@@ -2486,12 +2596,13 @@ function App() {
                 <>
                   <button
                     type="button"
-                    onClick={() => downloadExcelXml('alojamientos_temporales_abiertos.xml', 'AlojamientosTemporales', section5OrderedCols, section5AlojRowsWithTotals)}
+                    onClick={() => downloadExcelXml('alojamientos_temporales_abiertos.xml', 'AlojamientosTemporales', section5OrderedCols, section5AlojRowsWithTotals, { columnWidths: shelterExcelColumnWidths(section5OrderedCols) })}
                   >
                     Descargar Excel - Seccion 5.1
                   </button>
                   <div className="table-wrap">
-                    <table>
+                    <table className="shelter-table">
+                      <colgroup>{shelterColumnWeights(section5OrderedCols).map((width, index) => <col key={`s51-col-${index}`} style={{ width }} />)}</colgroup>
                       <thead>
                         <tr>{section5OrderedCols.map(([, label]) => <th key={`s5-${label}`}>{label}</th>)}</tr>
                       </thead>
@@ -2516,12 +2627,13 @@ function App() {
                 <>
                   <button
                     type="button"
-                    onClick={() => downloadExcelXml('alojamientos_temporales_cerrados.xml', 'AlojamientosTemporales', section5OrderedColsCerrados, section5AlojamientosCerradosRows)}
+                    onClick={() => downloadExcelXml('alojamientos_temporales_cerrados.xml', 'AlojamientosTemporales', section5OrderedColsCerrados, section5AlojamientosCerradosRows, { columnWidths: shelterExcelColumnWidths(section5OrderedColsCerrados) })}
                   >
                     Descargar Excel - Seccion 5.2
                   </button>
                   <div className="table-wrap">
-                    <table>
+                    <table className="shelter-table">
+                      <colgroup>{shelterColumnWeights(section5OrderedColsCerrados).map((width, index) => <col key={`s52-col-${index}`} style={{ width }} />)}</colgroup>
                       <thead>
                         <tr>{section5OrderedColsCerrados.map(([, label]) => <th key={`s5-${label}`}>{label}</th>)}</tr>
                       </thead>
@@ -2536,6 +2648,40 @@ function App() {
                   </div>
                 </>
               )}
+              </>
+            )}
+
+            {!isReport24h && (
+              <>
+                <div className="block-title pt-4">5.3 Alojamientos Temporales Implementados</div>
+                {shouldShowSection5Implemented && (
+                  <>
+                    <p className="muted">
+                      Adicional, se encuentran implementados <strong>{formatInt(section5RowsImplementados.length)} alojamientos temporales:</strong>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => downloadExcelXml('alojamientos_temporales_implementados.xml', 'AlojamientosTemporales', section5OrderedColsImplementados, section5RowsImplementados, { columnWidths: shelterExcelColumnWidths(section5OrderedColsImplementados) })}
+                    >
+                      Descargar Excel - Seccion 5.3
+                    </button>
+                    <div className="table-wrap">
+                      <table className="shelter-table">
+                        <colgroup>{shelterColumnWeights(section5OrderedColsImplementados).map((width, index) => <col key={`s53-col-${index}`} style={{ width }} />)}</colgroup>
+                        <thead>
+                          <tr>{section5OrderedColsImplementados.map(([, label]) => <th key={`s53-${label}`}>{label}</th>)}</tr>
+                        </thead>
+                        <tbody>
+                          {section5RowsImplementados.map((row, idx) => (
+                            <tr key={`s53-${idx}`}>
+                              {section5OrderedColsImplementados.map(([key]) => <td key={`s53-${idx}-${key}`}>{formatTableCellValue(key, row[key]) ?? '0'}</td>)}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
               </>
             )}
 
@@ -2647,7 +2793,7 @@ function App() {
                   <div className="coe-activated-section">
                     <h3 className="coe-section-title">Comités de Operaciones de Emergencias (COE) activados:</h3>
                     <p className="coe-intro">
-                      Desde el {formatDeclarationDate(section7StartDate)} hasta el {formatDeclarationDate(hasta)} se han activado los siguientes COE:
+                      Desde el {formatDeclarationDate(desde)} hasta el {formatDeclarationDate(hasta)} se han activado los siguientes COE:
                     </p>
 
                     {coeNacionalActivo && (
@@ -2767,6 +2913,7 @@ function App() {
                                           {actionIndex === 0 && group.date && (action.institution || action.description) ? ' ' : ''}
                                           {action.institution && <strong>{action.institution}</strong>}
                                           {action.institution && action.description ? ' ' : ''}{action.description}
+                                          {action.finalized && <> (<span className="high-impact-status-finalized">finalizado</span>).</>}
                                         </span>
                                       )
                                     })}

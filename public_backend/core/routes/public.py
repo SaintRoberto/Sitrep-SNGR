@@ -13,6 +13,7 @@ from ..services.afectaciones_service import (
     get_eventos_por_lluvias_km_vias_por_categoria,
     get_alojamientos_temporales_abiertos_por_lluvias,
     get_alojamientos_temporales_cerrados_por_lluvias,
+    get_alojamientos_temporales_implementados_por_lluvias,
     get_asistencia_humanitaria_por_lluvias_SNDGIRD,
     get_personas_fallecidas_por_lluvias,
     get_eventos_lluvias_total_por_mes,
@@ -468,6 +469,22 @@ def alojamientos_temporales_cerrados_por_lluvias():
         return jsonify({"items": data}), 200
     except AfectacionesServiceError as error:
         return jsonify({"error": "Database query failed", "details": error.details}), 500
+
+
+@public_bp.get("/alojamientos-temporales-implementados-por-lluvias")
+@require_api_key
+def alojamientos_temporales_implementados_por_lluvias():
+    """Lista alojamientos temporales implementados por lluvias."""
+    desde, hasta, error_response, status_code = _parse_sitrep_date_range()
+    if error_response is not None:
+        return error_response, status_code
+
+    try:
+        data = get_alojamientos_temporales_implementados_por_lluvias(desde, hasta)
+        return jsonify({"total": len(data), "items": data}), 200
+    except AfectacionesServiceError as error:
+        return jsonify({"error": "Database query failed", "details": error.details}), 500
+
 
 @public_bp.post("/consolidado/create")
 @require_api_key

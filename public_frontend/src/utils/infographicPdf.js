@@ -670,9 +670,32 @@ function renderHydrometeorology(doc, data) {
   }
   const image = data.mapImage || data.images?.[0] || data.tableImage
   const textWidth = image ? 125 : 154
-  font(doc, 'normal', 8.2, COLORS.black)
-  const lines = doc.splitTextToSize(String(data.text || data.label || 'Boletín procesado.'), textWidth).slice(0, 11)
-  doc.text(lines, 132, 163)
+  const textValue = String(data.detailText || data.text || data.label || 'Boletín procesado.')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\s*[•▪]\s*/g, '\n• ')
+    .replace(/\s*(¿?QU[EÉ] PUEDE PASAR\??)\s*/gi, '\n$1\n')
+    .replace(/\s*(ZONAS AFECTADAS)\s*/gi, '\n$1\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  const rawLines = textValue.split('\n').map((line) => line.trim()).filter(Boolean)
+  const availableHeight = 31.5
+  let textSize = 5.2
+  let lineHeight = 2
+  let lines = []
+  do {
+    font(doc, 'normal', textSize, COLORS.black)
+    lines = rawLines.flatMap((line) => doc.splitTextToSize(line, textWidth))
+    lineHeight = textSize * 0.38
+    if (lines.length * lineHeight <= availableHeight || textSize <= 3.8) break
+    textSize -= 0.2
+  } while (textSize >= 3.8)
+  let textY = 162.5
+  lines.forEach((line) => {
+    const heading = /QU[EÉ] PUEDE PASAR|ZONAS AFECTADAS/i.test(line)
+    font(doc, heading ? 'bold' : 'normal', textSize, heading ? COLORS.orange : COLORS.black)
+    doc.text(line, 132, textY)
+    textY += lineHeight
+  })
   if (image) {
     const properties = doc.getImageProperties(image)
     const box = { x: 259, y: 160, width: 28, height: 33 }

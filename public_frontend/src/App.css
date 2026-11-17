@@ -747,9 +747,30 @@ button.whatsapp-message-button {
   margin: 2px 0 2px 10px;
 }
 
+.high-impact-status-finalized {
+  color: #2e9d45;
+}
+
 .table-wrap {
   overflow: auto;
   border: 1px solid #d6dbe8;
+}
+
+.shelter-table {
+  table-layout: fixed;
+  min-width: 900px;
+}
+
+.shelter-table th,
+.shelter-table td {
+  overflow-wrap: anywhere;
+}
+
+.shelter-table th:first-child,
+.shelter-table td:first-child {
+  padding-left: 2px;
+  padding-right: 2px;
+  white-space: nowrap;
 }
 
 .html-chart-section {
@@ -835,6 +856,11 @@ button.whatsapp-message-button {
   font-weight: 700;
 }
 
+.chart-category-label-horizontal {
+  font-size: 15px;
+  font-weight: 400;
+}
+
 .chart-people-line {
   fill: none;
   stroke: #ef7024;
@@ -848,7 +874,7 @@ button.whatsapp-message-button {
 
 .chart-people-value {
   fill: #fff;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
 }
 

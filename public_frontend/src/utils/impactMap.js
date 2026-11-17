@@ -20,7 +20,7 @@ function closeChimborazoGeometryGap(province) {
 
 const ECUADOR_PROVINCES = RAW_ECUADOR_PROVINCES.map(closeChimborazoGeometryGap)
 
-export const IMPACT_COLORS = {
+const TRAFFIC_IMPACT_COLORS = {
   none: { hex: '#f3f7fb', rgb: [243, 247, 251] },
   low: { hex: '#42ba3c', rgb: [66, 186, 60] },
   yellowGreen: { hex: '#b8ec8a', rgb: [184, 236, 138] },
@@ -28,6 +28,21 @@ export const IMPACT_COLORS = {
   high: { hex: '#ffa05a', rgb: [255, 160, 90] },
   maximum: { hex: '#ff3150', rgb: [255, 49, 80] },
 }
+
+const BLUE_IMPACT_COLORS = {
+  none: { hex: '#f7f9fc', rgb: [247, 249, 252] },
+  low: { hex: '#e2e8f1', rgb: [226, 232, 241] },
+  yellowGreen: { hex: '#b8c9e2', rgb: [184, 201, 226] },
+  medium: { hex: '#4b7bc1', rgb: [75, 123, 193] },
+  high: { hex: '#2e5696', rgb: [46, 86, 150] },
+  maximum: { hex: '#173861', rgb: [23, 56, 97] },
+}
+
+const useTrafficImpactColors = ['true', '1', 'yes', 'on'].includes(
+  String(import.meta.env?.VITE_IMPACT_MAP_USE_TRAFFIC_COLORS || '').trim().toLowerCase()
+)
+
+export const IMPACT_COLORS = useTrafficImpactColors ? TRAFFIC_IMPACT_COLORS : BLUE_IMPACT_COLORS
 
 export function normalizeProvinceName(value) {
   return String(value ?? '')
@@ -87,6 +102,11 @@ export function shortProvinceLabel(name) {
     'Zamora Chinchipe': 'ZAMORA CH.',
   }
   return labels[name] || name.toUpperCase()
+}
+
+export function provinceChartLabel(name) {
+  const label = String(name ?? '').trim()
+  return normalizeProvinceName(label) === 'santo domingo de los tsachilas' ? 'Santo Domingo' : label
 }
 
 export function impactLegend() {

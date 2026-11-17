@@ -21,6 +21,10 @@ const COLORS = {
   white: [255, 255, 255],
   black: [18, 29, 42],
   red: [231, 25, 43],
+  orangeScale: [255, 160, 90],
+  yellow: [255, 224, 99],
+  yellowGreen: [184, 236, 138],
+  green: [66, 186, 60],
 }
 
 const EVENT_TYPES = [
@@ -46,10 +50,10 @@ const DETAIL_COLUMNS = [
   ['__no__', 'No.'],
   ['Provincia', 'Provincia'],
   ['NumeroEventos', 'Nro. de eventos'],
-  ['ImpactadasPersonas', 'Personas impactadas'],
-  ['Extraviados', 'Personas extraviadas'],
   ['Fallecidos', 'Personas fallecidas'],
   ['Heridos', 'Personas heridas'],
+  ['ImpactadasPersonas', 'Personas impactadas'],
+  ['Extraviados', 'Personas extraviadas'],
   ['AfectadosPersonas', 'Personas afectadas'],
   ['DamnificadosPersonas', 'Personas damnificadas'],
   ['AfectadosFamilias', 'Familias afectadas'],
@@ -523,6 +527,16 @@ function eventPalette(values) {
   return { levels, colorFor: (value) => value ? colors[Math.min(Math.max(0, levels.indexOf(value)), colors.length - 1)] : COLORS.grayMap }
 }
 
+function relativeHeatColor(value, maximum) {
+  const numericValue = n(value)
+  if (maximum > 0 && numericValue === maximum) return COLORS.red
+  const percentageOfMaximum = maximum > 0 ? numericValue / maximum * 100 : 0
+  if (percentageOfMaximum < 3) return COLORS.green
+  if (percentageOfMaximum < 10) return COLORS.yellowGreen
+  if (percentageOfMaximum < 30) return COLORS.yellow
+  return COLORS.orangeScale
+}
+
 function drawProvince(doc, province, x, y, width, height, fill) {
   const scaleX = width / 600
   const scaleY = height / 600
@@ -607,6 +621,8 @@ function renderProvinceDetail(doc, options, startY, meta) {
     columnStyles[index + 2] = { cellWidth: numericWidth, cellPadding: 0.18, overflow: 'linebreak' }
   })
   const tableFontSize = Math.max(3.5, Math.min(6.1, 7 - numericColumns * 0.2))
+  const maxEvents = Math.max(1, ...ranked.map((row) => n(row?.NumeroEventos)))
+  const maxPeople = Math.max(1, ...ranked.map((row) => n(row?.ImpactadasPersonas)))
   const bottom = table(doc, {
     x, y: y + 15, width,
     head: visibleColumns.map((column) => column.label),
@@ -616,6 +632,11 @@ function renderProvinceDetail(doc, options, startY, meta) {
     headMinHeight: visibleColumns.length > 5 ? 12 : 7,
     cellPadding: 0.18,
     minCellHeight: ranked.length > 12 ? 2.9 : 3.4,
+    didParseBodyCell: ({ cell, column, row }) => {
+      const key = visibleColumns[column.index]?.key
+      if (key === 'NumeroEventos') cell.styles.fillColor = relativeHeatColor(ranked[row.index]?.NumeroEventos, maxEvents)
+      if (key === 'ImpactadasPersonas') cell.styles.fillColor = relativeHeatColor(ranked[row.index]?.ImpactadasPersonas, maxPeople)
+    },
   })
   font(doc, 'medium', 4.7, COLORS.black)
   doc.text(meta.source, x + width / 2, bottom + 2.8, { align: 'center' })
@@ -664,8 +685,8 @@ function wrapRichText(doc, segments, width, fontSize) {
 
   segments.forEach((segment) => {
     String(segment.text || '').trim().split(/\s+/).filter(Boolean).forEach((word) => {
-      font(doc, segment.bold ? 'bold' : 'normal', fontSize, COLORS.darkNavy)
-      let displayed = currentLine.length ? ` ${word}` : word
+      font(doc, segment.bold ? 'bold' : 'normal', fontSize, segment.color || COLORS.darkNavy)
+      let displayed = currentLine.length && !segment.attach ? ` ${word}` : word
       let displayedWidth = doc.getTextWidth(displayed)
       if (currentLine.length && currentWidth + displayedWidth > width) {
         lines.push(currentLine)
@@ -675,8 +696,8 @@ function wrapRichText(doc, segments, width, fontSize) {
         displayedWidth = doc.getTextWidth(displayed)
       }
       const previous = currentLine[currentLine.length - 1]
-      if (previous?.bold === Boolean(segment.bold)) previous.text += displayed
-      else currentLine.push({ text: displayed, bold: Boolean(segment.bold) })
+      if (previous?.bold === Boolean(segment.bold) && previous?.color === segment.color) previous.text += displayed
+      else currentLine.push({ text: displayed, bold: Boolean(segment.bold), color: segment.color })
       currentWidth += displayedWidth
     })
   })
@@ -691,6 +712,11 @@ function responseActionRichLines(doc, event, width) {
       if (actionIndex === 0 && group.date) segments.push({ text: `${group.date}:`, bold: true })
       if (action.institution) segments.push({ text: action.institution, bold: true })
       if (action.description) segments.push({ text: action.description, bold: false })
+      if (action.finalized) {
+        segments.push({ text: '(', bold: false })
+        segments.push({ text: 'finalizado', bold: false, color: COLORS.green, attach: true })
+        segments.push({ text: ').', bold: false, attach: true })
+      }
     })
     return wrapRichText(doc, segments, width, 5.4)
   })
@@ -700,7 +726,7 @@ function drawRichTextLines(doc, lines, x, y, fontSize, lineHeight) {
   lines.forEach((line) => {
     let currentX = x
     line.forEach((segment) => {
-      font(doc, segment.bold ? 'bold' : 'normal', fontSize, COLORS.darkNavy)
+      font(doc, segment.bold ? 'bold' : 'normal', fontSize, segment.color || COLORS.darkNavy)
       doc.text(segment.text, currentX, y)
       currentX += doc.getTextWidth(segment.text)
     })
