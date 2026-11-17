@@ -607,7 +607,7 @@ function renderProvinceDetail(doc, options, startY, meta) {
   }))
   rows.push(visibleColumns.map((column) => {
     if (column.key === '__no__') return ''
-    if (column.key === 'Provincia') return 'Total general'
+    if (column.key === 'Provincia') return 'Total'
     return fmt(sum(options.items, column.key), column.decimal)
   }))
   const fixedWidth = 31

@@ -321,7 +321,7 @@ function withSelectedTotalsRow(columns, rows, totalKeys) {
   columns.forEach(([key]) => { totalRow[key] = '' })
   const labelKey = columns.find(([key]) => key === 'Provincia')?.[0]
     || columns.find(([key]) => key !== '__no__')?.[0]
-  if (labelKey) totalRow[labelKey] = 'Total general'
+  if (labelKey) totalRow[labelKey] = 'Total'
   selectedKeys.forEach((key) => {
     if (columns.some(([columnKey]) => columnKey === key)) {
       totalRow[key] = rows.reduce((total, row) => total + n(row?.[key]), 0)
@@ -2838,7 +2838,7 @@ function App() {
                                 </tr>
                               ))}
                               <tr className="total-row">
-                                <td>Total general</td>
+                                <td>Total</td>
                                 <td>{formatInt(coeMunicipalesResumen.totalCantons)}</td>
                                 <td>{formatInt(coeMunicipalesResumen.totalActive)}</td>
                                 <td>{coeMunicipalesResumen.globalPercentage}%</td>

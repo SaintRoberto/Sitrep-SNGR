@@ -306,8 +306,24 @@ function paragraphFromSegments(segments, options = {}) {
     children: segments.map((segment) => textRun(segment.text ?? segment[0], segment.bold ?? segment[1], segment)),
     alignment: options.alignment || AlignmentType.JUSTIFIED,
     spacing: { before: options.before || 0, after: options.after ?? 100, line: options.line || 250 },
+    indent: options.indent,
     keepNext: options.keepNext,
     bullet: options.bullet ? { level: 0 } : undefined,
+  })
+}
+
+function sentence(value) {
+  const text = String(value ?? '').trim()
+  if (!text || /[.!?]$/.test(text)) return text
+  return `${text}.`
+}
+
+function highImpactZoneTitle(zone) {
+  return new Paragraph({
+    children: [textRun(`ZONA ${zone}`, true, { size: 20, color: COLORS.darkNavy, italics: true })],
+    spacing: { before: 95, after: 28, line: 220 },
+    indent: { left: 380 },
+    keepNext: true,
   })
 }
 
@@ -358,6 +374,20 @@ function shelterTableWidths(columns) {
     if (column.key === 'Provincia') return 0.75
     if (['Parroquia', 'Nombre', 'Alojamiento'].includes(column.key)) return 2.1
     return 1
+  })
+  const totalWeight = weights.reduce((total, weight) => total + weight, 0)
+  const widths = weights.map((weight) => Math.floor(CONTENT_WIDTH_DXA * weight / totalWeight))
+  widths[widths.length - 1] += CONTENT_WIDTH_DXA - widths.reduce((total, width) => total + width, 0)
+  return widths
+}
+
+function waterBodiesTableWidths(columns) {
+  const weights = columns.map((column) => {
+    if (column.key === '__no__') return 0.28
+    if (column.key === 'Provincia') return 0.68
+    if (['Parroquia', 'Sector', 'CuerpoHidrico'].includes(column.key)) return 2.1
+    if (column.key === 'Canton') return 0.95
+    return 1.05
   })
   const totalWeight = weights.reduce((total, weight) => total + weight, 0)
   const widths = weights.map((weight) => Math.floor(CONTENT_WIDTH_DXA * weight / totalWeight))
@@ -425,7 +455,7 @@ function tableCell(value, options = {}) {
     : [new Paragraph({
       children: [textRun(value, options.bold, { size: options.fontSize || 14, color: options.color || COLORS.black })],
       alignment: options.alignment || AlignmentType.CENTER,
-      spacing: { before: 0, after: 0, line: 210 },
+      spacing: { before: 0, after: 0, line: options.lineSpacing || 210 },
     })]
   return new TableCell({
     children,
@@ -525,6 +555,10 @@ function dataTable(columns, rows, options = {}) {
   const widths = options.widths || proportionalWidths(columns, tableWidth, options.firstWide)
   const hasVerticalHeaders = Boolean(options.verticalHeaders)
   const headerFontSize = options.headerFontSize || (hasVerticalHeaders ? 12 : 13)
+  const headerMargins = options.headerMargins || { top: 25, bottom: 25, left: 30, right: 30 }
+  const cellMargins = options.cellMargins || { top: 10, bottom: 10, left: 30, right: 30 }
+  const headerLineSpacing = options.headerLineSpacing || 200
+  const bodyLineSpacing = options.lineSpacing || 200
   const header = new TableRow({
     tableHeader: true,
     height: hasVerticalHeaders
@@ -542,7 +576,8 @@ function dataTable(columns, rows, options = {}) {
         textDirection: verticalHeader
           ? TextDirection.BOTTOM_TO_TOP_LEFT_TO_RIGHT
           : horizontalEntityHeader ? TextDirection.LEFT_TO_RIGHT_TOP_TO_BOTTOM : undefined,
-        margins: options.headerMargins,
+        margins: headerMargins,
+        lineSpacing: headerLineSpacing,
       })
     }),
   })
@@ -563,7 +598,8 @@ function dataTable(columns, rows, options = {}) {
         color: isTotal ? COLORS.white : (columnColor || COLORS.black),
         fontSize: options.fontSize || 13,
         alignment: column.align || (column.type === 'text' ? AlignmentType.LEFT : AlignmentType.CENTER),
-        margins: options.cellMargins,
+        margins: cellMargins,
+        lineSpacing: bodyLineSpacing,
       })
     }),
   }))
@@ -1227,11 +1263,19 @@ export async function buildEventosLluviasWord({
     ]
     if (waterBodiesOverflowed.length) {
       children.push(subsectionTitle(`${fmt(waterBodiesOverflowed.length)} CUERPOS HÍDRICOS DESBORDADOS`, COLORS.red))
-      addTable(children, dataTable(waterColumns, waterBodiesOverflowed, { headerFill: COLORS.red, fontSize: 12 }))
+      addTable(children, dataTable(waterColumns, waterBodiesOverflowed, {
+        headerFill: COLORS.red,
+        fontSize: 12,
+        widths: waterBodiesTableWidths(waterColumns),
+      }))
     }
     if (waterBodiesRising.length) {
       children.push(subsectionTitle(`${fmt(waterBodiesRising.length)} CUERPOS HÍDRICOS CON TENDENCIA A SUBIR DE NIVEL`, COLORS.orange))
-      addTable(children, dataTable(waterColumns, waterBodiesRising, { headerFill: COLORS.orange, fontSize: 12 }))
+      addTable(children, dataTable(waterColumns, waterBodiesRising, {
+        headerFill: COLORS.orange,
+        fontSize: 12,
+        widths: waterBodiesTableWidths(waterColumns),
+      }))
     }
     children.push(sourceLine(metadata))
   }
@@ -1344,7 +1388,7 @@ export async function buildEventosLluviasWord({
       headerFontSize: 12,
       verticalHeaders: verticalDataHeader,
       headerMargins: { top: 35, bottom: 35, left: 25, right: 25 },
-      cellMargins: { top: 55, bottom: 55, left: 25, right: 25 },
+      cellMargins: { top: 10, bottom: 10, left: 25, right: 25 },
     }))
     children.push(sourceLine(metadata, '. Nota: Personas impactadas incluye personas afectadas y damnificadas.'))
 
@@ -1400,7 +1444,7 @@ export async function buildEventosLluviasWord({
       fontSize: 12,
       headerFontSize: 12,
       headerMargins: { top: 35, bottom: 35, left: 20, right: 20 },
-      cellMargins: { top: 35, bottom: 35, left: 20, right: 20 },
+      cellMargins: { top: 10, bottom: 10, left: 20, right: 20 },
     })
     const monthlyChartContent = monthlyChart
       ? [new Paragraph({
@@ -1578,28 +1622,65 @@ export async function buildEventosLluviasWord({
     children.push(sectionTitle('8', 'Eventos adversos de alto impacto'))
     children.push(paragraphFromSegments([[highImpactEvents.length
       ? 'A continuación, se detallan los eventos adversos relevantes de este periodo:'
-      : 'No se registraron eventos adversos de alto impacto para el período consultado.', false]]))
+      : 'No se registraron eventos adversos de alto impacto para el período consultado.', false]], {
+      after: 35,
+      line: 230,
+    }))
     let activeZone = null
     highImpactEvents.forEach((item) => {
       const zone = String(item?.Zona ?? '').trim() || 'Sin zona'
       if (zone !== activeZone) {
-        children.push(subsectionTitle(`Zona ${zone}`, '0B1F78'))
+        children.push(highImpactZoneTitle(zone))
         activeZone = zone
       }
-      children.push(paragraphFromSegments([[`${String(item?.Ubicacion || 'Ubicación no registrada').trim()}.`, true]], { bullet: true, keepNext: true }))
+      const location = sentence(item?.Ubicacion || 'Ubicación no registrada')
+      const narrative = [item?.Antecedentes, item?.SituacionActual].map(sentence).filter(Boolean)
+      const narrativeSegments = [
+        { text: '•', bold: true, size: 18, color: COLORS.darkNavy },
+        { text: '   ' },
+        { text: location, bold: true, italics: true, size: 18, color: COLORS.darkNavy },
+      ]
+      narrative.forEach((text) => narrativeSegments.push({ text: ` ${text}`, size: 18, color: COLORS.black }))
+      children.push(paragraphFromSegments(narrativeSegments, {
+        after: 18,
+        line: 235,
+        keepNext: true,
+        indent: { left: 680, hanging: 300 },
+      }))
       const eventMeta = highImpactEventMetaText(item)
       if (eventMeta) children.push(paragraphFromSegments([{
         text: eventMeta,
         bold: true,
-        size: 15,
+        size: 14,
         color: COLORS.darkNavy,
-      }], { before: 0, after: 80, keepNext: true }))
-      if (String(item?.Antecedentes ?? '').trim()) children.push(paragraphFromSegments([[item.Antecedentes, false]]))
-      if (String(item?.SituacionActual ?? '').trim()) children.push(paragraphFromSegments([[item.SituacionActual, false]]))
-      reportLines(item?.Afectaciones).forEach((line) => children.push(paragraphFromSegments([[`${affectationText(line)}.`, true]], { bullet: true })))
+      }], {
+        before: 0,
+        after: 20,
+        line: 205,
+        keepNext: true,
+        indent: { left: 680 },
+        alignment: AlignmentType.LEFT,
+      }))
+      const affectations = reportLines(item?.Afectaciones)
+      affectations.forEach((line, index) => children.push(paragraphFromSegments([
+        { text: '-', size: 18 },
+        { text: `   ${affectationText(line)}.`, size: 18 },
+      ], {
+        after: index === affectations.length - 1 ? 25 : 0,
+        line: 220,
+        indent: { left: 980, hanging: 300 },
+        alignment: AlignmentType.LEFT,
+      })))
       const responseActionGroups = highImpactResponseActionGroups(item)
-      if (responseActionGroups.length) children.push(paragraphFromSegments([['Acciones de respuesta:', true]], { keepNext: true }))
-      responseActionGroups.forEach((group) => {
+      if (responseActionGroups.length) children.push(paragraphFromSegments([['Acciones de respuesta:', true]], {
+        before: 15,
+        after: 5,
+        line: 220,
+        keepNext: true,
+        indent: { left: 680 },
+        alignment: AlignmentType.LEFT,
+      }))
+      responseActionGroups.forEach((group, groupIndex) => {
         const segments = []
         group.actions.forEach((action, actionIndex) => {
           if (actionIndex === 0 && group.date) segments.push([`${group.date}: `, true])
@@ -1612,7 +1693,12 @@ export async function buildEventosLluviasWord({
           }
           if (actionIndex < group.actions.length - 1) segments.push([' ', false])
         })
-        children.push(paragraphFromSegments(segments, { bullet: true }))
+        children.push(paragraphFromSegments(segments, {
+          after: groupIndex === responseActionGroups.length - 1 ? 45 : 5,
+          line: 230,
+          indent: { left: 680 },
+          alignment: AlignmentType.JUSTIFIED,
+        }))
       })
     })
     children.push(sourceLine(metadata))

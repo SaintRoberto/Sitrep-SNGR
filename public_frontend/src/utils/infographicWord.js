@@ -37,6 +37,16 @@ function fixedRowTable(cells, widths, height) { return new Table({ width: { size
 function minRowTable(cells, widths, height) { return new Table({ width: { size: widths.reduce((a, b) => a + b, 0), type: WidthType.DXA }, columnWidths: widths, layout: TableLayoutType.FIXED, borders: NONE, rows: [new TableRow({ height: { value: height, rule: HeightRule.ATLEAST }, children: cells })] }) }
 function band(title) { return p([run(title, { bold: true, color: C.white, size: 16 })], { align: AlignmentType.CENTER, after: 0 }) }
 function image(data, width, height) { return p([new ImageRun({ data, type: 'png', transformation: { width, height } })], { align: AlignmentType.CENTER, after: 0 }) }
+function fittedImageSize(aspectRatio, maxWidth, maxHeight) {
+  const safeAspectRatio = Number(aspectRatio) > 0 ? Number(aspectRatio) : 1
+  let width = maxWidth
+  let height = Math.round(width / safeAspectRatio)
+  if (height > maxHeight) {
+    height = maxHeight
+    width = Math.round(height * safeAspectRatio)
+  }
+  return { width: Math.max(1, width), height: Math.max(1, height) }
+}
 async function imageData(url) { const response = await fetch(url); if (!response.ok) throw new Error(`No se pudo cargar el recurso Word: ${url}`); return new Uint8Array(await response.arrayBuffer()) }
 async function loadAssets() {
   const base = import.meta.env?.BASE_URL || '/'
@@ -199,14 +209,33 @@ function provinceTable(options) {
 }
 function hydro(options) {
   const data = options.hydrometeorology; if (!data) return [p([run('No se adjuntó boletín hidrometeorológico.', { color: C.gray })])]
-  const images = data.type === 'forecast' ? (data.maps || []).map((map) => [map.region, map.image]) : [[data.label || '', data.mapImage || data.images?.[0] || data.tableImage]].filter(([, value]) => value)
+  const images = data.type === 'forecast'
+    ? (data.maps || []).map((map) => ({ label: map.region, value: map.image, aspectRatio: map.aspectRatio }))
+    : [{
+        label: data.label || '',
+        value: data.mapImage || data.images?.[0] || data.tableImage,
+        aspectRatio: data.mapAspectRatio || data.tableAspectRatio,
+      }].filter((item) => item.value)
   const rawText = String(data.detailText || data.text || data.label || 'Boletín procesado.').replace(/\r\n?/g, '\n').trim()
   let blocks = rawText.split(/\n\s*\n|\n+/).map((value) => value.trim()).filter(Boolean)
   if (blocks.length === 1) blocks = rawText.split(/(?<=\.)\s+(?=(?:Entre|Adicional(?:mente)?|Durante|Desde|Para|En la región)\b)/i).map((value) => value.trim()).filter(Boolean)
   const descriptions = blocks.map((value) => p([run(value, { size: 16 })], { after: 90 }))
   if (!images.length) return descriptions
-  if (data.type !== 'forecast') return [table([[cell(descriptions, { width: 7350, margin: 60, verticalAlign: VerticalAlign.TOP }), cell([image(images[0][1], 145, 122)], { width: 2050, margin: 20, verticalAlign: VerticalAlign.TOP })]], [7350, 2050])]
-  return [...descriptions, table([images.slice(0, 4).map(([label, value]) => cell([p([run(label, { bold: true, color: C.navy, size: 11 })], { align: AlignmentType.CENTER }), image(value, 115, 75)], { width: Math.floor(9400 / images.length) }))], Array(images.length).fill(Math.floor(9400 / images.length)))]
+  if (data.type !== 'forecast') {
+    const size = fittedImageSize(images[0].aspectRatio, 145, 122)
+    return [table([[cell(descriptions, { width: 7350, margin: 60, verticalAlign: VerticalAlign.TOP }), cell([image(images[0].value, size.width, size.height)], { width: 2050, margin: 20, verticalAlign: VerticalAlign.TOP })]], [7350, 2050])]
+  }
+  const forecastImages = images.slice(0, 4)
+  const baseWidth = Math.floor(9400 / forecastImages.length)
+  const widths = forecastImages.map((_item, index) => baseWidth + (index === forecastImages.length - 1 ? 9400 - baseWidth * forecastImages.length : 0))
+  const cells = forecastImages.map((item, index) => {
+    const size = fittedImageSize(item.aspectRatio, 132, 105)
+    return cell([
+      p([run(item.label, { bold: true, color: C.navy, size: 11 })], { align: AlignmentType.CENTER, after: 35 }),
+      image(item.value, size.width, size.height),
+    ], { width: widths[index], margin: 15, verticalAlign: VerticalAlign.TOP })
+  })
+  return [...descriptions, table([cells], widths)]
 }
 
 function scope(row) { return String(row?.Ambito || row?.Ámbito || row?.Tipo || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() }
