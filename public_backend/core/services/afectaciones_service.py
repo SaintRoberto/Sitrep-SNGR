@@ -241,7 +241,7 @@ def get_declaratorias_emergencia_por_lluvias(desde, hasta):
 
 
 def get_coes_por_lluvias(desde, hasta, nivel):
-    niveles_permitidos = {"COE-N", "COE-P", "COE-M", "COPAE"}
+    niveles_permitidos = {"COE-N", "COE-P", "COE-M", "COE Parroquial"}
     if nivel not in niveles_permitidos:
         raise AfectacionesServiceError(
             "Invalid COE level",
@@ -249,7 +249,7 @@ def get_coes_por_lluvias(desde, hasta, nivel):
         )
 
     query = "CALL dmeva.`spSitRepNac-Lluvias-COE`(%s, %s, %s, %s)"
-    params = [desde, hasta, nivel, "El Niño,Época Lluviosa"]
+    params = [desde, hasta, nivel, "El Niño, Época Lluviosa"]
 
     try:
         return _run_query(query, params)

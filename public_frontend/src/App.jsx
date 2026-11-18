@@ -76,13 +76,22 @@ const ALERT_DECLARATION_COLS = [
 ]
 
 const EMERGENCY_DECLARATION_COLS = [
+  ['__no__', 'No.'],
   ['Ambito', 'Nivel de gobierno'],
   ['Provincia', 'Provincia'],
   ['Canton', 'Cantón'],
   ['Parroquia', 'Parroquia'],
   ['FechaInicio', 'Fecha declaratoria'],
+  ['FechaFinal', 'Fecha de cierre'],
+  ['Estado', 'Estado'],
   ['Observacion', 'Descripción'],
 ]
+
+const PROVINCIAL_EMERGENCY_DECLARATION_COLS = EMERGENCY_DECLARATION_COLS
+  .filter(([key]) => !['Canton', 'Parroquia'].includes(key))
+
+const CANTONAL_EMERGENCY_DECLARATION_COLS = EMERGENCY_DECLARATION_COLS
+  .filter(([key]) => key !== 'Parroquia')
 
 const COE_PROVINCIAL_COLS = [
   ['__no__', 'Nro.'], ['Provincia', 'Provincia'], ['FechaInicial', 'Fecha de activación'], ['Estado', 'Estado'],
@@ -750,6 +759,13 @@ function alertLevelClass(value) {
   return ''
 }
 
+function emergencyStateClass(value) {
+  const state = String(value ?? '').trim().toLowerCase()
+  if (state.includes('no vigente')) return 'emergency-state-not-current'
+  if (state.includes('vigente')) return 'emergency-state-current'
+  return ''
+}
+
 function splitReportLines(value) {
   return String(value ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
 }
@@ -776,6 +792,16 @@ function sortByGovernmentLevel(rows) {
     if (levelDifference !== 0) return levelDifference
     return String(left?.FechaInicio ?? '').localeCompare(String(right?.FechaInicio ?? ''), 'es')
   })
+}
+
+function declarationsByGovernmentLevel(rows, level) {
+  const normalizedLevel = String(level).toLowerCase()
+  return rows.filter((row) => String(row?.Ambito ?? row?.Ámbito ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .includes(normalizedLevel))
 }
 
 function toDateTimeInputValue(date) {
@@ -1539,6 +1565,14 @@ function App() {
   )
   const shouldShowWaterBodies = cuerposHidricosDesbordadosItems.length > 0 || cuerposHidricosTendenciaItems.length > 0
   const orderedNivelesAlertaItems = useMemo(() => sortByGovernmentLevel(nivelesAlertaItems), [nivelesAlertaItems])
+  const declaratoriasEmergenciaProvinciales = useMemo(
+    () => declarationsByGovernmentLevel(declaratoriasEmergenciaItems, 'provinc'),
+    [declaratoriasEmergenciaItems]
+  )
+  const declaratoriasEmergenciaCantonales = useMemo(
+    () => declarationsByGovernmentLevel(declaratoriasEmergenciaItems, 'canton'),
+    [declaratoriasEmergenciaItems]
+  )
   const coeNacionalActivo = useMemo(() => uniqueActiveCoeRows(coeNacionalItems, ['TipoCOE'])[0] || null, [coeNacionalItems])
   const coeProvincialesActivos = useMemo(
     () => uniqueActiveCoeRows(coeProvincialItems, ['Provincia']).sort((left, right) => String(left?.Provincia || '').localeCompare(String(right?.Provincia || ''), 'es')),
@@ -1627,7 +1661,7 @@ function App() {
           fetch(coeUrl('COE-N')),
           fetch(coeUrl('COE-P')),
           fetch(coeUrl('COE-M')),
-          fetch(coeUrl('COPAE')),
+          fetch(coeUrl('COE Parroquial')),
           fetch(eventosAltoImpactoUrl)
 
         ])
@@ -1672,7 +1706,7 @@ function App() {
         if (!responseCoeNacional.ok) throw new Error(dataCoeNacional?.error || 'Error consultando COE nacional')
         if (!responseCoeProvincial.ok) throw new Error(dataCoeProvincial?.error || 'Error consultando COE provinciales')
         if (!responseCoeMunicipal.ok) throw new Error(dataCoeMunicipal?.error || 'Error consultando COE cantonales')
-        if (!responseCopae.ok) throw new Error(dataCopae?.error || 'Error consultando COPAE parroquiales')
+        if (!responseCopae.ok) throw new Error(dataCopae?.error || 'Error consultando COE parroquiales')
         if (!responseEventosAltoImpacto.ok) throw new Error(dataEventosAltoImpacto?.error || 'Error consultando eventos adversos de alto impacto')
 
         const filteredMainItems = filterRowsByProvince(dataMain?.items, selectedProvince)
@@ -1816,7 +1850,7 @@ function App() {
         fetch(coeUrl('COE-N')),
         fetch(coeUrl('COE-P')),
         fetch(coeUrl('COE-M')),
-        fetch(coeUrl('COPAE')),
+        fetch(coeUrl('COE Parroquial')),
         fetch(eventosAltoImpactoUrl)
       ])
       const [dataMain, dataTipos, dataDpa, dataAsistencia, dataAsistenciaSNDGIRD, dataAlojamientos, dataAlojamientosCerrados, dataAlojamientosImplementados, dataPersonasFallecidas, dataEventosMes, dataViasCategoria, dataCuerposDesbordados, dataCuerposTendencia, dataNivelesAlerta, dataDeclaratoriasEmergencia, dataCoeNacional, dataCoeProvincial, dataCoeMunicipal, dataCopae, dataEventosAltoImpacto] = await Promise.all([
@@ -1860,7 +1894,7 @@ function App() {
       if (!responseCoeNacional.ok) throw new Error(dataCoeNacional?.error || 'Error consultando COE nacional')
       if (!responseCoeProvincial.ok) throw new Error(dataCoeProvincial?.error || 'Error consultando COE provinciales')
       if (!responseCoeMunicipal.ok) throw new Error(dataCoeMunicipal?.error || 'Error consultando COE cantonales')
-      if (!responseCopae.ok) throw new Error(dataCopae?.error || 'Error consultando COPAE parroquiales')
+      if (!responseCopae.ok) throw new Error(dataCopae?.error || 'Error consultando COE parroquiales')
       if (!responseEventosAltoImpacto.ok) throw new Error(dataEventosAltoImpacto?.error || 'Error consultando eventos adversos de alto impacto')
 
       const filteredItems = (data) => filterRowsByProvince(data?.items, selectedProvince)
@@ -2765,17 +2799,27 @@ function App() {
                   </div>
                 )}
 
-                {declaratoriasEmergenciaItems.length > 0 && (
-                  <div className="declaration-block">
-                    <h3>Declaratorias de emergencia en todo el país:</h3>
+                {[
+                  ['provincial', 'Declaratoria de emergencia provincial:', declaratoriasEmergenciaProvinciales, PROVINCIAL_EMERGENCY_DECLARATION_COLS],
+                  ['cantonal', 'Declaratoria de emergencia cantonal:', declaratoriasEmergenciaCantonales, CANTONAL_EMERGENCY_DECLARATION_COLS],
+                ].map(([scope, title, rows, columns]) => rows.length > 0 && (
+                  <div className="declaration-block" key={`emergencia-${scope}`}>
+                    <h3>{title}</h3>
                     <div className="table-wrap">
-                      <table className="declaration-table emergency-declaration-table">
-                        <thead><tr>{EMERGENCY_DECLARATION_COLS.map(([, label]) => <th key={`emergencia-${label}`}>{label}</th>)}</tr></thead>
-                        <tbody>{declaratoriasEmergenciaItems.map((row, rowIndex) => (
-                          <tr key={`emergencia-${rowIndex}`}>
-                            {EMERGENCY_DECLARATION_COLS.map(([key]) => (
-                              <td key={`emergencia-${rowIndex}-${key}`}>
-                                {key === 'FechaInicio' ? formatDeclarationDate(row?.[key]) : (row?.[key] ?? '--')}
+                      <table className={`declaration-table emergency-declaration-table emergency-declaration-${scope}-table`}>
+                        <thead><tr>{columns.map(([, label]) => <th key={`emergencia-${scope}-${label}`}>{label}</th>)}</tr></thead>
+                        <tbody>{rows.map((row, rowIndex) => (
+                          <tr key={`emergencia-${scope}-${rowIndex}`}>
+                            {columns.map(([key]) => (
+                              <td
+                                key={`emergencia-${scope}-${rowIndex}-${key}`}
+                                className={key === 'Estado' ? emergencyStateClass(row?.[key]) : ''}
+                              >
+                                {key === '__no__'
+                                  ? rowIndex + 1
+                                  : ['FechaInicio', 'FechaFinal'].includes(key)
+                                    ? (formatDeclarationDate(row?.[key]) || '--')
+                                    : (row?.[key] ?? '--')}
                               </td>
                             ))}
                           </tr>
@@ -2783,7 +2827,7 @@ function App() {
                       </table>
                     </div>
                   </div>
-                )}
+                ))}
 
                 <p className="declaration-note">
                   Además, mediante <strong>Decreto ejecutivo Nro. 485, firmado el 31 de agosto de 2026, por el presidente del Ecuador Daniel Noboa Azin, resuelve declarar</strong> como prioridad nacional la continuidad y el fortalecimiento de las acciones de prevención y preparación frente a los posibles efectos del fenómeno El Niño en el territorio nacional, así como la ejecución de las acciones de respuesta y recuperación que correspondan, en función de la evolución del evento y los escenarios de riesgos, en el marco de la Alerta Roja declarada en todo el territorio nacional, mediante Resolución No. SNGR-238-2026, del 29 de agosto de 2026.
@@ -2851,7 +2895,7 @@ function App() {
 
                     {copaeActivos.length > 0 && (
                       <div className="coe-block">
-                        <h4>{formatInt(copaeActivos.length)} COE parroquiales:</h4>
+                        <h4>Se registran {formatInt(copaeActivos.length)} COE parroquiales:</h4>
                         <div className="table-wrap coe-table-wrap">
                           <table className="coe-table copae-table">
                             <thead><tr>{COPAE_COLS.map(([, label]) => <th key={`copae-${label}`}>{label}</th>)}</tr></thead>

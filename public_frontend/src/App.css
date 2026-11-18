@@ -549,15 +549,76 @@ button.whatsapp-message-button {
   text-align: left;
 }
 
-.emergency-declaration-table th:not(:last-child),
-.emergency-declaration-table td:not(:last-child) {
-  width: 9.4%;
+.emergency-declaration-provincial-table th:nth-child(1),
+.emergency-declaration-provincial-table td:nth-child(1),
+.emergency-declaration-cantonal-table th:nth-child(1),
+.emergency-declaration-cantonal-table td:nth-child(1) {
+  width: 3%;
 }
 
-.emergency-declaration-table th:last-child,
-.emergency-declaration-table td:last-child {
-  width: 53%;
+.emergency-declaration-provincial-table th:nth-child(2),
+.emergency-declaration-provincial-table td:nth-child(2),
+.emergency-declaration-cantonal-table th:nth-child(2),
+.emergency-declaration-cantonal-table td:nth-child(2) {
+  width: 6%;
+}
+
+.emergency-declaration-provincial-table th:nth-child(3),
+.emergency-declaration-provincial-table td:nth-child(3) {
+  width: 8%;
+}
+
+.emergency-declaration-provincial-table th:nth-child(4),
+.emergency-declaration-provincial-table td:nth-child(4),
+.emergency-declaration-provincial-table th:nth-child(5),
+.emergency-declaration-provincial-table td:nth-child(5) {
+  width: 8%;
+}
+
+.emergency-declaration-provincial-table th:nth-child(6),
+.emergency-declaration-provincial-table td:nth-child(6) {
+  width: 6%;
+}
+
+.emergency-declaration-provincial-table th:last-child,
+.emergency-declaration-provincial-table td:last-child {
+  width: 61%;
   text-align: left;
+}
+
+.emergency-declaration-cantonal-table th:nth-child(3),
+.emergency-declaration-cantonal-table td:nth-child(3),
+.emergency-declaration-cantonal-table th:nth-child(4),
+.emergency-declaration-cantonal-table td:nth-child(4) {
+  width: 7%;
+}
+
+.emergency-declaration-cantonal-table th:nth-child(5),
+.emergency-declaration-cantonal-table td:nth-child(5),
+.emergency-declaration-cantonal-table th:nth-child(6),
+.emergency-declaration-cantonal-table td:nth-child(6) {
+  width: 8%;
+}
+
+.emergency-declaration-cantonal-table th:nth-child(7),
+.emergency-declaration-cantonal-table td:nth-child(7) {
+  width: 6%;
+}
+
+.emergency-declaration-cantonal-table th:last-child,
+.emergency-declaration-cantonal-table td:last-child {
+  width: 55%;
+  text-align: left;
+}
+
+.declaration-table td.emergency-state-current {
+  color: #ef4444;
+  font-weight: 700;
+}
+
+.declaration-table td.emergency-state-not-current {
+  color: #42ba3c;
+  font-weight: 700;
 }
 
 .declaration-table tbody td {

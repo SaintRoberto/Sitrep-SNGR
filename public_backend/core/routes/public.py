@@ -882,11 +882,17 @@ def declaratorias_emergencia_por_lluvias():
 @public_bp.get("/coes-activados-por-lluvias")
 @require_api_key
 def coes_activados_por_lluvias():
-    nivel = (request.args.get("tipo") or "").strip().upper()
-    niveles_permitidos = {"COE-N", "COE-P", "COE-M", "COPAE"}
-    if nivel not in niveles_permitidos:
+    nivel_solicitado = (request.args.get("tipo") or "").strip()
+    niveles_permitidos = {
+        "COE-N": "COE-N",
+        "COE-P": "COE-P",
+        "COE-M": "COE-M",
+        "COE PARROQUIAL": "COE Parroquial",
+    }
+    nivel = niveles_permitidos.get(nivel_solicitado.upper())
+    if nivel is None:
         return jsonify({
-            "error": "tipo must be one of COE-N, COE-P, COE-M or COPAE"
+            "error": "tipo must be one of COE-N, COE-P, COE-M or COE Parroquial"
         }), 400
 
     desde, hasta, error_response, status_code = _parse_sitrep_date_range()

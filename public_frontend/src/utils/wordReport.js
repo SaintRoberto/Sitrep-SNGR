@@ -231,19 +231,6 @@ function reportDateOnly(value) {
   return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, '0')}-${String(parsed.getUTCDate()).padStart(2, '0')}`
 }
 
-function reportDateSpanishLong(value) {
-  const raw = String(value ?? '').trim()
-  if (!raw) return ''
-  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(raw)
-  const parsed = calendarDate ? null : new Date(raw)
-  if (!calendarDate && Number.isNaN(parsed.getTime())) return raw
-  const year = calendarDate ? calendarDate[1] : String(parsed.getUTCFullYear())
-  const month = calendarDate ? Number(calendarDate[2]) : parsed.getUTCMonth() + 1
-  const day = calendarDate ? calendarDate[3] : String(parsed.getUTCDate()).padStart(2, '0')
-  const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
-  return `${day} de ${months[month - 1]} de ${year}`
-}
-
 function tableValue(column, raw, row, rowIndex) {
   if (column?.integer) return fmtInteger(raw)
   if (isDateColumn(column)) return column.format ? column.format(raw, row, rowIndex) : reportDate(raw)
@@ -744,6 +731,23 @@ function sortDeclarationsByGovernmentLevel(items) {
   })
 }
 
+function declarationsByGovernmentLevel(items, level) {
+  const normalizedLevel = String(level).toLowerCase()
+  return items.filter((item) => String(item?.Ambito ?? item?.Ámbito ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .includes(normalizedLevel))
+}
+
+function emergencyStateColor(value) {
+  const state = String(value ?? '').trim().toLowerCase()
+  if (state.includes('no vigente')) return COLORS.green
+  if (state.includes('vigente')) return COLORS.red
+  return undefined
+}
+
 function alertLevelFill(value) {
   const level = String(value ?? '').trim().toLowerCase()
   if (level.includes('rojo')) return COLORS.red
@@ -771,6 +775,7 @@ function affectationText(value) {
 
 function chartImage(rows, title, firstKey, secondKey, firstLabel, secondLabel, options = {}) {
   if (typeof document === 'undefined' || !rows.length) return null
+  const emphasizedLabels = Boolean(options.emphasizedLabels)
   const canvas = document.createElement('canvas')
   canvas.width = 1400
   canvas.height = 700
@@ -784,7 +789,7 @@ function chartImage(rows, title, firstKey, secondKey, firstLabel, secondLabel, o
   context.fillText(title, canvas.width / 2, 42)
   const maxFirst = Math.max(1, ...rows.map((row) => n(row[firstKey])))
   const maxSecond = Math.max(1, ...rows.map((row) => n(row[secondKey])))
-  context.font = '17px Arial Narrow, Arial, sans-serif'
+  context.font = `${emphasizedLabels ? 22 : 17}px Arial Narrow, Arial, sans-serif`
   for (let index = 0; index <= 4; index += 1) {
     const y = plot.y + plot.height - plot.height * index / 4
     context.strokeStyle = '#E1E1E1'
@@ -801,18 +806,28 @@ function chartImage(rows, title, firstKey, secondKey, firstLabel, secondLabel, o
   }
   const slot = plot.width / rows.length
   const points = []
+  const barValueBounds = []
   rows.forEach((row, index) => {
     const centerX = plot.x + slot * index + slot / 2
     const barHeight = n(row[firstKey]) / maxFirst * plot.height
     context.fillStyle = '#4572BE'
     context.fillRect(centerX - Math.max(12, slot * 0.36), plot.y + plot.height - barHeight, Math.max(24, slot * 0.72), barHeight)
     context.fillStyle = '#59616B'
-    context.font = 'bold 19px Arial Narrow, Arial, sans-serif'
+    context.font = `bold ${emphasizedLabels ? 24 : 19}px Arial Narrow, Arial, sans-serif`
     context.textAlign = 'center'
-    context.fillText(fmt(row[firstKey]), centerX, Math.max(plot.y + 16, plot.y + plot.height - barHeight - 7))
+    const barLabel = fmt(row[firstKey])
+    const barLabelY = Math.max(plot.y + 16, plot.y + plot.height - barHeight - 7)
+    const barLabelWidth = context.measureText(barLabel).width
+    context.fillText(barLabel, centerX, barLabelY)
+    barValueBounds.push({
+      left: centerX - barLabelWidth / 2,
+      right: centerX + barLabelWidth / 2,
+      top: barLabelY - (emphasizedLabels ? 24 : 19),
+      bottom: barLabelY + 5,
+    })
     points.push([centerX, plot.y + plot.height - n(row[secondKey]) / maxSecond * plot.height])
     if (options.horizontalLabels) {
-      context.font = '18px Arial Narrow, Arial, sans-serif'
+      context.font = `${emphasizedLabels ? 24 : 18}px Arial Narrow, Arial, sans-serif`
       context.textAlign = 'center'
       context.fillText(String(row.label || ''), centerX, plot.y + plot.height + 34)
     } else {
@@ -835,29 +850,45 @@ function chartImage(rows, title, firstKey, secondKey, firstLabel, secondLabel, o
     context.beginPath()
     context.arc(x, y, 6, 0, Math.PI * 2)
     context.fill()
-    context.font = 'bold 19px Arial Narrow, Arial, sans-serif'
+    context.font = `bold ${emphasizedLabels ? 24 : 19}px Arial Narrow, Arial, sans-serif`
     context.textAlign = 'center'
     const label = fmt(rows[index][secondKey])
     const labelY = Math.min(plot.y + plot.height + 25, y + 28)
-    const labelWidth = context.measureText(label).width + 18
+    const labelWidth = context.measureText(label).width + (emphasizedLabels ? 26 : 18)
+    const labelHeight = emphasizedLabels ? 39 : 29
+    const labelTop = labelY - (emphasizedLabels ? 29 : 22)
+    const barBounds = barValueBounds[index]
+    const overlapsBarValue = emphasizedLabels
+      && x + labelWidth / 2 >= barBounds.left
+      && x - labelWidth / 2 <= barBounds.right
+      && labelTop + labelHeight >= barBounds.top
+      && labelTop <= barBounds.bottom
+    const labelX = overlapsBarValue
+      ? Math.min(plot.x + plot.width - labelWidth / 2, x + labelWidth / 2 + 14)
+      : x
     context.fillStyle = '#EF7024'
-    context.fillRect(x - labelWidth / 2, labelY - 22, labelWidth, 29)
+    context.fillRect(labelX - labelWidth / 2, labelTop, labelWidth, labelHeight)
     context.fillStyle = '#FFFFFF'
-    context.fillText(label, x, labelY)
+    context.fillText(label, labelX, labelY)
   })
-  context.font = '18px Arial Narrow, Arial, sans-serif'
+  const legendY = emphasizedLabels ? 558 : 661
+  const firstLegendX = emphasizedLabels ? 430 : 450
+  const firstLegendTextX = emphasizedLabels ? 475 : 490
+  const secondLegendX = emphasizedLabels ? 670 : 770
+  const secondLegendTextX = emphasizedLabels ? 725 : 825
+  context.font = `${emphasizedLabels ? 26 : 18}px Arial Narrow, Arial, sans-serif`
   context.fillStyle = '#4572BE'
-  context.fillRect(450, 654, 28, 13)
+  context.fillRect(firstLegendX, legendY - (emphasizedLabels ? 15 : 7), emphasizedLabels ? 32 : 28, emphasizedLabels ? 17 : 13)
   context.fillStyle = '#666666'
   context.textAlign = 'left'
-  context.fillText(firstLabel, 490, 667)
+  context.fillText(firstLabel, firstLegendTextX, legendY + (emphasizedLabels ? 6 : 6))
   context.strokeStyle = '#EF7024'
   context.lineWidth = 4
   context.beginPath()
-  context.moveTo(770, 661)
-  context.lineTo(810, 661)
+  context.moveTo(secondLegendX, legendY - 1)
+  context.lineTo(secondLegendX + 40, legendY - 1)
   context.stroke()
-  context.fillText(secondLabel, 825, 667)
+  context.fillText(secondLabel, secondLegendTextX, legendY + (emphasizedLabels ? 6 : 6))
   return canvas.toDataURL('image/png')
 }
 
@@ -1259,7 +1290,7 @@ export async function buildEventosLluviasWord({
       { key: '__no__', label: 'No.', format: (_value, _row, index) => index + 1 },
       { key: 'Provincia', label: 'Provincia', type: 'text' }, { key: 'Canton', label: 'Cantón', type: 'text' },
       { key: 'Parroquia', label: 'Parroquia', type: 'text' }, { key: 'Sector', label: 'Sector', type: 'text' },
-      { key: 'CuerpoHidrico', label: 'Nombre del cuerpo hídrico', type: 'text' }, { key: 'FechaNovedad', label: 'Fecha de incremento del nivel', format: reportDateSpanishLong },
+      { key: 'CuerpoHidrico', label: 'Nombre del cuerpo hídrico', type: 'text' }, { key: 'FechaNovedad', label: 'Fecha de incremento del nivel', format: reportDateOnly },
     ]
     if (waterBodiesOverflowed.length) {
       children.push(subsectionTitle(`${fmt(waterBodiesOverflowed.length)} CUERPOS HÍDRICOS DESBORDADOS`, COLORS.red))
@@ -1419,7 +1450,10 @@ export async function buildEventosLluviasWord({
     const maxMonthlyEvents = Math.max(0, ...monthRows.map((row) => totalEvents ? row.events / totalEvents * 100 : 0))
     const maxMonthlyPeople = Math.max(0, ...monthRows.map((row) => totalPeople ? row.people / totalPeople * 100 : 0))
     children.push(subsectionTitle('Recurrencia de eventos vs personas impactadas por mes', COLORS.gray))
-    const monthlyChart = chartImage(monthRows.map((row) => ({ ...row, label: row.month })), 'Recurrencia de eventos vs personas impactadas por mes', 'events', 'people', 'Nro. de eventos', 'Personas Impactadas', { horizontalLabels: true })
+    const monthlyChart = chartImage(monthRows.map((row) => ({ ...row, label: row.month })), 'Recurrencia de eventos vs personas impactadas por mes', 'events', 'people', 'Nro. de eventos', 'Personas Impactadas', {
+      horizontalLabels: true,
+      emphasizedLabels: true,
+    })
     const columns = [
       { key: 'month', label: 'Mes', type: 'text' }, { key: 'events', label: 'Número de eventos', type: 'number', integer: true },
       { key: 'people', label: 'Personas impactadas', type: 'number', integer: true },
@@ -1556,6 +1590,15 @@ export async function buildEventosLluviasWord({
       },
       { key: 'Observacion', label: 'Descripción', type: 'text' },
     ]
+    const emergencyColumns = [
+      { key: '__no__', label: 'No.', format: (_value, _row, index) => index + 1 },
+      { key: 'Ambito', label: 'Nivel de gobierno', type: 'text' }, { key: 'Provincia', label: 'Provincia', type: 'text' },
+      { key: 'Canton', label: 'Cantón', type: 'text' }, { key: 'Parroquia', label: 'Parroquia', type: 'text' },
+      { key: 'FechaInicio', label: 'Fecha declaratoria', format: declarationDate },
+      { key: 'FechaFinal', label: 'Fecha de cierre', format: declarationDate },
+      { key: 'Estado', label: 'Estado', type: 'text', bold: true, color: emergencyStateColor },
+      { key: 'Observacion', label: 'Descripción', type: 'text' },
+    ]
     if (alertDeclarations.length) {
       children.push(subsectionTitle('Declaratorias de niveles de alertas en todo el país:'))
       addTable(children, dataTable(alertColumns, sortDeclarationsByGovernmentLevel(alertDeclarations), {
@@ -1563,13 +1606,28 @@ export async function buildEventosLluviasWord({
         widths: [600, 750, 650, 650, 800, 600, 5700],
       }))
     }
-    if (emergencyDeclarations.length) {
-      children.push(subsectionTitle('Declaratorias de emergencia en todo el país:'))
-      addTable(children, dataTable(alertColumns.filter((column) => column.key !== 'NivelAlerta'), emergencyDeclarations, {
+    const emergencyDeclarationGroups = [
+      [
+        'Declaratoria de emergencia provincial:',
+        declarationsByGovernmentLevel(emergencyDeclarations, 'provinc'),
+        emergencyColumns.filter((column) => !['Canton', 'Parroquia'].includes(column.key)),
+        [350, 600, 850, 900, 900, 650, 5500],
+      ],
+      [
+        'Declaratoria de emergencia cantonal:',
+        declarationsByGovernmentLevel(emergencyDeclarations, 'canton'),
+        emergencyColumns.filter((column) => column.key !== 'Parroquia'),
+        [350, 550, 750, 750, 850, 850, 600, 5050],
+      ],
+    ]
+    emergencyDeclarationGroups.forEach(([title, rows, columns, widths]) => {
+      if (!rows.length) return
+      children.push(subsectionTitle(title))
+      addTable(children, dataTable(columns, rows, {
         fontSize: 10,
-        widths: [550, 700, 650, 550, 800, 6500],
+        widths,
       }))
-    }
+    })
     children.push(paragraphFromSegments([['Además, mediante ', false], ['Decreto ejecutivo Nro. 485, firmado el 31 de agosto de 2026, por el presidente del Ecuador Daniel Noboa Azin, se declara ', true], ['como prioridad nacional la continuidad y el fortalecimiento de las acciones de prevención, preparación, respuesta y recuperación frente a los posibles efectos del fenómeno El Niño.', false]]))
     const national = uniqueActiveCoeRows(nationalCoeItems, ['TipoCOE'])[0]
     const provincial = uniqueActiveCoeRows(provincialCoeItems, ['Provincia'])
@@ -1602,7 +1660,7 @@ export async function buildEventosLluviasWord({
       }))
     }
     if (parish.length) {
-      children.push(paragraphFromSegments([[`${fmt(parish.length)} COE parroquiales:`, true]], { bullet: true }))
+      children.push(paragraphFromSegments([[`Se registran ${fmt(parish.length)} COE parroquiales:`, true]], { bullet: true }))
       addTable(children, dataTable([
         { key: '__no__', label: 'Nro.', format: (_value, _row, index) => index + 1 },
         { key: 'Provincia', label: 'Provincia', type: 'text' },

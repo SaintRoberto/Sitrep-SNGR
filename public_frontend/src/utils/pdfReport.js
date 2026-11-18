@@ -38,7 +38,7 @@ const WATER_BODY_COLUMNS = [
   { key: 'Parroquia', label: 'Parroquia', width: 30 },
   { key: 'Sector', label: 'Sector', width: 25 },
   { key: 'CuerpoHidrico', label: 'Nombre del cuerpo hídrico', width: 31 },
-  { key: 'FechaNovedad', label: 'Fecha de incremento del nivel', width: 30, format: reportDateSpanishLong },
+  { key: 'FechaNovedad', label: 'Fecha de incremento del nivel', width: 30, format: reportDateOnly },
 ]
 
 const ALERT_DECLARATION_COLUMNS = [
@@ -52,13 +52,24 @@ const ALERT_DECLARATION_COLUMNS = [
 ]
 
 const EMERGENCY_DECLARATION_COLUMNS = [
-  { key: 'Ambito', label: 'Nivel de gobierno', width: 10 },
-  { key: 'Provincia', label: 'Provincia', width: 12 },
-  { key: 'Canton', label: 'Cantón', width: 12 },
-  { key: 'Parroquia', label: 'Parroquia', width: 8 },
-  { key: 'FechaInicio', label: 'Fecha declaratoria', width: 14 },
-  { key: 'Observacion', label: 'Descripción', width: 116 },
+  { key: '__no__', label: 'No.', width: 6 },
+  { key: 'Ambito', label: 'Nivel de gobierno', width: 9 },
+  { key: 'Provincia', label: 'Provincia', width: 11 },
+  { key: 'Canton', label: 'Cantón', width: 11 },
+  { key: 'Parroquia', label: 'Parroquia', width: 7 },
+  { key: 'FechaInicio', label: 'Fecha declaratoria', width: 13 },
+  { key: 'FechaFinal', label: 'Fecha de cierre', width: 13 },
+  { key: 'Estado', label: 'Estado', width: 10 },
+  { key: 'Observacion', label: 'Descripción', width: 92 },
 ]
+
+const PROVINCIAL_EMERGENCY_DECLARATION_COLUMNS = EMERGENCY_DECLARATION_COLUMNS
+  .filter((column) => !['Canton', 'Parroquia'].includes(column.key))
+  .map((column) => ({ ...column, width: ({ __no__: 6, Ambito: 12, Provincia: 17, FechaInicio: 18, FechaFinal: 18, Estado: 14, Observacion: 87 })[column.key] }))
+
+const CANTONAL_EMERGENCY_DECLARATION_COLUMNS = EMERGENCY_DECLARATION_COLUMNS
+  .filter((column) => column.key !== 'Parroquia')
+  .map((column) => ({ ...column, width: ({ __no__: 6, Ambito: 10, Provincia: 14, Canton: 14, FechaInicio: 16, FechaFinal: 16, Estado: 12, Observacion: 84 })[column.key] }))
 
 const EVENT_TYPES = [
   ['Inundacion', 'Inundación'], ['Deslizamiento', 'Deslizamiento'], ['Lluvias_Intensas', 'Lluvias intensas'],
@@ -224,19 +235,6 @@ function reportDateOnly(value) {
   const parsed = value instanceof Date ? value : new Date(raw)
   if (Number.isNaN(parsed.getTime())) return raw
   return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, '0')}-${String(parsed.getUTCDate()).padStart(2, '0')}`
-}
-
-function reportDateSpanishLong(value) {
-  const raw = String(value ?? '').trim()
-  if (!raw) return ''
-  const calendarDate = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(raw)
-  const parsed = calendarDate ? null : new Date(raw)
-  if (!calendarDate && Number.isNaN(parsed.getTime())) return raw
-  const year = calendarDate ? calendarDate[1] : String(parsed.getUTCFullYear())
-  const month = calendarDate ? Number(calendarDate[2]) : parsed.getUTCMonth() + 1
-  const day = calendarDate ? calendarDate[3] : String(parsed.getUTCDate()).padStart(2, '0')
-  const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
-  return `${day} de ${months[month - 1]} de ${year}`
 }
 
 function tableValue(column, value) {
@@ -1421,6 +1419,23 @@ function sortDeclarationsByGovernmentLevel(items) {
   })
 }
 
+function declarationsByGovernmentLevel(items, level) {
+  const normalizedLevel = String(level).toLowerCase()
+  return items.filter((item) => String(item?.Ambito ?? item?.Ámbito ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .includes(normalizedLevel))
+}
+
+function emergencyStateColor(value) {
+  const state = String(value ?? '').trim().toLowerCase()
+  if (state.includes('no vigente')) return C.green
+  if (state.includes('vigente')) return C.red
+  return null
+}
+
 function renderRichParagraph(doc, currentY, segments, options = {}) {
   const left = options.left || PAGE.left
   const width = options.width || PAGE.contentWidth
@@ -1459,9 +1474,12 @@ function renderDeclarationTable(doc, currentY, title, items, columns, colorAlert
   doc.line(PAGE.left + 2, currentY + 0.8, PAGE.left + 2 + doc.getTextWidth(title), currentY + 0.8)
   currentY += 7
 
-  const body = items.map((row) => columns.map((column) => (
-    column.key === 'FechaInicio' ? declarationDate(row?.[column.key]) : String(row?.[column.key] ?? '--')
-  )))
+  const body = items.map((row, rowIndex) => columns.map((column) => {
+    if (column.key === '__no__') return rowIndex + 1
+    return ['FechaInicio', 'FechaFinal'].includes(column.key)
+      ? (declarationDate(row?.[column.key]) || '--')
+      : String(row?.[column.key] ?? '--')
+  }))
   const columnStyles = Object.fromEntries(columns.map((column, index) => [index, {
     cellWidth: column.width,
     ...(column.key === 'Observacion' ? { halign: 'left' } : {}),
@@ -1484,6 +1502,13 @@ function renderDeclarationTable(doc, currentY, title, items, columns, colorAlert
       alignHorizontalEntityHeader(cell, columns[column.index], section)
       if (section !== 'body') return
       if (isBoldEntityColumn(columns[column.index])) cell.styles.fontStyle = 'bold'
+      if (columns[column.index]?.key === 'Estado') {
+        const stateColor = emergencyStateColor(items[row.index]?.Estado)
+        if (stateColor) {
+          cell.styles.textColor = stateColor
+          cell.styles.fontStyle = 'bold'
+        }
+      }
       if (!colorAlerts || columns[column.index]?.key !== 'NivelAlerta') return
       const fillColor = alertLevelColor(items[row.index]?.NivelAlerta)
       if (fillColor) {
@@ -1602,7 +1627,7 @@ function renderActivatedCoes(doc, currentY, nationalItems, provincialItems, muni
   }
 
   if (parish.length) {
-    currentY = renderCoeSubtitle(doc, currentY, `${fmt(parish.length)} COE parroquiales:`)
+    currentY = renderCoeSubtitle(doc, currentY, `Se registran ${fmt(parish.length)} COE parroquiales:`)
     currentY = renderCoeTable(doc, currentY, parish, [
       { key: '__no__', label: 'Nro.', width: 7 },
       { key: 'Provincia', label: 'Provincia', width: 23 },
@@ -1621,7 +1646,8 @@ function renderDeclarations(doc, currentY, alertDeclarations, emergencyDeclarati
   currentY = renderSectionTitle(doc, currentY + 2, '7', 'Declaratorias emitidas y COE activados')
   const orderedAlerts = sortDeclarationsByGovernmentLevel(alertDeclarations)
   currentY = renderDeclarationTable(doc, currentY, 'Declaratorias de niveles de alertas en todo el país:', orderedAlerts, ALERT_DECLARATION_COLUMNS, true)
-  currentY = renderDeclarationTable(doc, currentY, 'Declaratorias de emergencia en todo el país:', emergencyDeclarations, EMERGENCY_DECLARATION_COLUMNS)
+  currentY = renderDeclarationTable(doc, currentY, 'Declaratoria de emergencia provincial:', declarationsByGovernmentLevel(emergencyDeclarations, 'provinc'), PROVINCIAL_EMERGENCY_DECLARATION_COLUMNS)
+  currentY = renderDeclarationTable(doc, currentY, 'Declaratoria de emergencia cantonal:', declarationsByGovernmentLevel(emergencyDeclarations, 'canton'), CANTONAL_EMERGENCY_DECLARATION_COLUMNS)
   currentY = renderRichParagraph(doc, currentY, [
     { text: 'Además, mediante' },
     { text: 'Decreto ejecutivo Nro. 485, firmado el 31 de agosto de 2026, por el presidente del Ecuador Daniel Noboa Azin, resuelve declarar', bold: true },
